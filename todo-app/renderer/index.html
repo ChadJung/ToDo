@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'" />
+  <title>TodoApp</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app">
+    <div class="titlebar" id="titlebar">
+      <div class="titlebar-drag">
+        <span class="titlebar-title">TodoApp</span>
+      </div>
+      <div class="titlebar-controls">
+        <button id="win-min" class="titlebar-btn" type="button" aria-label="최소화" title="최소화">
+          <svg width="10" height="10" viewBox="0 0 10 10"><line x1="0" y1="5" x2="10" y2="5" stroke="currentColor" stroke-width="1"/></svg>
+        </button>
+        <button id="win-max" class="titlebar-btn" type="button" aria-label="최대화" title="최대화">
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><rect x="0.5" y="0.5" width="9" height="9" stroke="currentColor" stroke-width="1"/></svg>
+        </button>
+        <button id="win-close" class="titlebar-btn titlebar-close" type="button" aria-label="닫기" title="닫기">
+          <svg width="10" height="10" viewBox="0 0 10 10"><line x1="0" y1="0" x2="10" y2="10" stroke="currentColor" stroke-width="1"/><line x1="10" y1="0" x2="0" y2="10" stroke="currentColor" stroke-width="1"/></svg>
+        </button>
+      </div>
+    </div>
+    <header class="board-header">
+      <div class="board-title">
+        <h1 id="board-title-text">Todo Board</h1>
+        <span id="board-count" class="board-count"></span>
+      </div>
+      <div class="toolbar">
+        <div class="multi-select" id="filter-status">
+          <button type="button" class="multi-select-btn" id="filter-status-btn" aria-haspopup="listbox" aria-expanded="false">
+            <span class="multi-select-label" id="filter-status-label">상태 전체</span>
+            <span class="multi-select-arrow">▾</span>
+          </button>
+          <div class="multi-select-menu hidden" id="filter-status-menu" role="listbox">
+            <label class="multi-select-option">
+              <input type="checkbox" value="대기" checked />
+              <span>대기</span>
+            </label>
+            <label class="multi-select-option">
+              <input type="checkbox" value="진행" checked />
+              <span>진행</span>
+            </label>
+            <label class="multi-select-option">
+              <input type="checkbox" value="완료" checked />
+              <span>완료</span>
+            </label>
+            <div class="multi-select-actions">
+              <button type="button" data-act="all">전체</button>
+              <button type="button" data-act="none">해제</button>
+            </div>
+          </div>
+        </div>
+        <select id="filter-priority" class="select">
+          <option value="">우선순위 전체</option>
+          <option value="높음">높음</option>
+          <option value="보통">보통</option>
+          <option value="낮음">낮음</option>
+        </select>
+        <select id="sort-by" class="select">
+          <option value="priority">우선순위순</option>
+          <option value="dueDate">마감일순</option>
+        </select>
+        <button id="sort-direction" class="btn" title="정렬 방향 전환">↓</button>
+        <div class="view-toggle" role="group" aria-label="보기 모드">
+          <button id="view-board" class="view-btn active" type="button">보드</button>
+          <button id="view-list" class="view-btn" type="button">목록</button>
+          <button id="view-calendar" class="view-btn" type="button">캘린더</button>
+        </div>
+        <button id="btn-add-job" class="btn btn-success">+ JOB 추가 (Ctrl+Q)</button>
+        <button id="btn-add-task-toolbar" class="btn btn-primary">+ Task 추가 (Ctrl+E)</button>
+        <button id="btn-settings" class="btn btn-icon" type="button" title="설정" aria-label="설정">⚙</button>
+        <button id="btn-help" class="btn btn-help" type="button" title="가이드 다시 보기" aria-label="도움말">?</button>
+      </div>
+    </header>
+
+    <main class="board" id="board">
+      <div class="board-empty" id="board-empty">
+        <p>등록된 JOB이 없습니다.</p>
+        <p>상단의 <strong>+ JOB 추가</strong> 버튼으로 시작하세요.</p>
+      </div>
+    </main>
+
+    <main class="calendar-view hidden" id="calendar-view">
+      <div class="calendar-toolbar">
+        <div class="cal-nav-group">
+          <button id="cal-prev" class="btn cal-nav-btn" type="button" title="이전">‹</button>
+          <button id="cal-today" class="btn" type="button">오늘</button>
+          <button id="cal-next" class="btn cal-nav-btn" type="button" title="다음">›</button>
+          <span id="cal-title" class="cal-title">2026년 5월</span>
+        </div>
+        <div class="cal-mode-group">
+          <div class="view-toggle" role="group" aria-label="캘린더 모드">
+            <button id="cal-mode-month" class="view-btn active" type="button">월</button>
+            <button id="cal-mode-week" class="view-btn" type="button">주</button>
+          </div>
+        </div>
+      </div>
+      <div class="calendar-body" id="calendar-body"></div>
+    </main>
+
+    <main class="list-view hidden" id="list-view">
+      <div class="list-empty" id="list-empty">
+        <p>등록된 JOB이 없습니다.</p>
+        <p>상단의 <strong>+ JOB 추가</strong> 버튼으로 시작하세요.</p>
+      </div>
+      <table class="task-table" id="task-table">
+        <thead>
+          <tr>
+            <th>JOB-NO</th>
+            <th>제목</th>
+            <th>상태</th>
+            <th>우선순위</th>
+            <th>시작</th>
+            <th>마감일</th>
+            <th>종료</th>
+            <th>메모</th>
+          </tr>
+        </thead>
+        <tbody id="task-table-body"></tbody>
+      </table>
+    </main>
+  </div>
+
+  <!-- Job Modal -->
+  <div id="modal-job" class="modal hidden">
+    <div class="modal-backdrop" data-close></div>
+    <div class="modal-content">
+      <h2 id="modal-job-title">JOB 추가</h2>
+      <form id="form-job">
+        <label>JOB 번호
+          <input type="text" id="job-no-input" required placeholder="예: JOB-001" />
+        </label>
+        <label>제목
+          <input type="text" id="job-title-input" required placeholder="프로젝트명" />
+        </label>
+        <div class="modal-actions">
+          <button type="button" class="btn" data-close>취소</button>
+          <button type="submit" class="btn btn-primary">저장</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Task Modal -->
+  <div id="modal-task" class="modal hidden">
+    <div class="modal-backdrop" data-close></div>
+    <div class="modal-content">
+      <h2 id="modal-task-title">Task 추가</h2>
+      <form id="form-task">
+        <input type="hidden" id="task-id-input" />
+        <input type="hidden" id="task-jobno-input" />
+        <label>제목
+          <input type="text" id="task-title-input" required placeholder="할 일 제목" />
+        </label>
+        <div class="form-row">
+          <label>JOB
+            <select id="task-jobno-select"></select>
+          </label>
+          <label>우선순위
+            <select id="task-priority-input">
+              <option value="높음">높음</option>
+              <option value="보통" selected>보통</option>
+              <option value="낮음">낮음</option>
+            </select>
+          </label>
+        </div>
+        <div class="form-row">
+          <label>상태
+            <select id="task-status-input">
+              <option value="대기">대기</option>
+              <option value="진행">진행</option>
+              <option value="완료">완료</option>
+            </select>
+          </label>
+          <label>&nbsp;
+            <span style="height: 32px;"></span>
+          </label>
+        </div>
+        <div class="form-row">
+          <label>시작일
+            <input type="text" id="task-start-input" class="datepicker-input" placeholder="YYYY-MM-DD" readonly autocomplete="off" />
+          </label>
+          <label>시작 시간
+            <div class="tp-wrap">
+              <input type="text" id="task-start-time-input" class="tp-display" data-tp readonly placeholder="HH:MM" autocomplete="off" />
+              <button type="button" class="tp-clear" tabindex="-1" aria-label="시간 지우기">×</button>
+            </div>
+          </label>
+        </div>
+        <div class="form-row">
+          <label>마감일
+            <input type="text" id="task-due-input" class="datepicker-input" placeholder="YYYY-MM-DD" readonly autocomplete="off" />
+          </label>
+          <label>&nbsp;
+            <span style="height: 32px;"></span>
+          </label>
+        </div>
+        <div class="form-row">
+          <label>종료일
+            <input type="text" id="task-end-input" class="datepicker-input" placeholder="YYYY-MM-DD" readonly autocomplete="off" />
+          </label>
+          <label>종료 시간
+            <div class="tp-wrap">
+              <input type="text" id="task-end-time-input" class="tp-display" data-tp readonly placeholder="HH:MM" autocomplete="off" />
+              <button type="button" class="tp-clear" tabindex="-1" aria-label="시간 지우기">×</button>
+            </div>
+          </label>
+        </div>
+        <label>메모
+          <textarea id="task-memo-input" rows="4" placeholder="상세 내용"></textarea>
+        </label>
+        <div class="modal-actions">
+          <button type="button" id="btn-delete-task" class="btn btn-danger hidden">삭제</button>
+          <span style="flex:1"></span>
+          <button type="button" class="btn" data-close>취소</button>
+          <button type="submit" class="btn btn-primary">저장</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Custom Alert Modal -->
+  <div id="modal-alert" class="modal hidden">
+    <div class="modal-backdrop" data-alert-close></div>
+    <div class="modal-content modal-narrow">
+      <h3 id="alert-title">알림</h3>
+      <p id="alert-message"></p>
+      <div class="modal-actions">
+        <span style="flex:1"></span>
+        <button type="button" class="btn btn-primary" id="alert-ok">확인</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Custom Confirm Modal -->
+  <div id="modal-confirm" class="modal hidden">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content modal-narrow">
+      <h3 id="confirm-title">확인</h3>
+      <p id="confirm-message"></p>
+      <div class="modal-actions">
+        <span style="flex:1"></span>
+        <button type="button" class="btn" id="confirm-cancel">취소</button>
+        <button type="button" class="btn btn-danger" id="confirm-ok">확인</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Complete Confirm Modal (with don't-ask-again) -->
+  <div id="modal-complete-confirm" class="modal hidden">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content modal-narrow">
+      <h3>작업 완료</h3>
+      <p>종료 시간을 현재 시각으로 자동 설정할까요?</p>
+      <label class="checkbox-row">
+        <input type="checkbox" id="complete-confirm-remember" />
+        <span>다시 보지 않기 (선택한 동작을 영구 적용)</span>
+      </label>
+      <div class="modal-actions">
+        <span style="flex:1"></span>
+        <button type="button" class="btn" id="complete-confirm-no">아니요</button>
+        <button type="button" class="btn btn-primary" id="complete-confirm-yes">네, 자동 설정</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Settings Modal -->
+  <div id="modal-settings" class="modal hidden">
+    <div class="modal-backdrop" data-settings-close></div>
+    <div class="modal-content">
+      <h2>설정</h2>
+      <form id="form-settings">
+        <fieldset class="settings-section">
+          <legend>화면</legend>
+          <label>확대 / 축소
+            <select id="settings-zoom">
+              <option value="1">100% (기본)</option>
+              <option value="2">115%</option>
+              <option value="3">130%</option>
+            </select>
+          </label>
+        </fieldset>
+
+        <fieldset class="settings-section">
+          <legend>작업 완료 동작</legend>
+          <label>완료 시 종료 시간 처리
+            <select id="settings-complete-behavior">
+              <option value="ask">매번 묻기</option>
+              <option value="auto">자동 설정 (현재 시각)</option>
+              <option value="manual">설정하지 않음</option>
+            </select>
+          </label>
+        </fieldset>
+
+        <fieldset class="settings-section">
+          <legend>알림</legend>
+          <label class="checkbox-row">
+            <input type="checkbox" id="settings-notify-enabled" />
+            <span>시작 시간 알림 사용</span>
+          </label>
+          <label>알림 시점 (몇 분 전)
+            <input type="number" id="settings-notify-minutes" min="0" max="1440" step="1" />
+          </label>
+        </fieldset>
+
+        <div class="modal-actions">
+          <span style="flex:1"></span>
+          <button type="button" class="btn" data-settings-close>취소</button>
+          <button type="submit" class="btn btn-primary">저장</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,46 @@
+{
+  "name": "todo-app",
+  "version": "1.0.0",
+  "description": "JOB-NO grouped Todo desktop application",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win nsis",
+    "build:portable": "electron-builder --win portable"
+  },
+  "author": "sjjung",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.sjjung.todoapp",
+    "productName": "TodoApp",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer/**",
+      "data/**",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "data/todos.json",
+        "to": "data/todos.json"
+      }
+    ],
+    "win": {
+      "target": ["nsis", "portable"],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false
+    }
+  }
+}

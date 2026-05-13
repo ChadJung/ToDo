@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+todo-app/dist/
+build/
+todo-app/build/
+
+# Local user data (todo storage)
+todo-app/data/
+
+# Logs
+logs/
+*.log
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Claude / MoAI tooling / local state
+.claude/
+.moai/
+
+# Backups & temp
+*.bak
+*.tmp
