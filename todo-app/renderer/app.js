@@ -1908,8 +1908,8 @@ const Tour = (() => {
     {
       targetSelector: '__task_status_row__',
       modalStep: true,
-      title: '상태 & 우선순위',
-      body: '상태(대기/진행/완료)와 우선순위를 지정합니다. 보드 뷰의 칸 위치와 카드 색상이 이 값에 따라 바뀝니다.'
+      title: '우선순위 & 상태',
+      body: '우선순위와 상태(대기/진행/완료)를 지정합니다. 보드 뷰의 칸 위치와 카드 색상이 이 값에 따라 바뀝니다.'
     },
     {
       targetSelector: '__task_date_rows__',

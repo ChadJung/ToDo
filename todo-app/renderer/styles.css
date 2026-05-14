@@ -468,6 +468,9 @@ input, select, textarea, button { font-family: inherit; }
   grid-template-columns: 1fr 1fr;
   gap: 12px;
 }
+.form-row.form-row-single {
+  grid-template-columns: 1fr;
+}
 .form-row.form-row-label-title {
   grid-template-columns: 156px minmax(0, 1fr);
   column-gap: 14px;
@@ -1616,7 +1619,7 @@ input, select, textarea, button { font-family: inherit; }
   display: inline-block;
 }
 .multi-select-btn {
-  padding: 6px 28px 6px 10px;
+  padding: 6px 26px 6px 10px;
   background: #2d2d30;
   color: #e6e6e6;
   border: 1px solid #555;
@@ -1647,9 +1650,14 @@ input, select, textarea, button { font-family: inherit; }
   right: 8px;
   top: 50%;
   transform: translateY(-50%);
-  color: #9a9a9a;
-  font-size: 0.7rem;
+  width: 10px;
+  height: 6px;
   pointer-events: none;
+  color: transparent;
+  font-size: 0;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1,1L5,5L9,1' fill='none' stroke='%239a9a9a' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: center;
 }
 
 .multi-select-menu {
