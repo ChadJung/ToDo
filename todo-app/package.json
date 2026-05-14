@@ -5,7 +5,10 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
+    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
+    "prebuild": "npm run clean",
     "build": "electron-builder --win nsis",
+    "prebuild:portable": "npm run clean",
     "build:portable": "electron-builder --win portable"
   },
   "author": "sjjung",
