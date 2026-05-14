@@ -6,6 +6,16 @@
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-05-14
+
+### Added
+- JOB별 색상 지정 - JOB 추가/수정 모달에서 프리셋 색상 팔레트(10색 + 없음) 선택
+- 보드 컬럼 헤더에 JOB 수정 버튼(✎) - 제목과 색상을 변경할 수 있는 편집 모드
+
+### Changed
+- JOB 색상이 보드 카드 왼쪽 테두리, 컬럼 상단 띠, 캘린더 일정 bar(월간/주간/종일)에 반영됨
+- 색상을 지정하지 않은 JOB은 기존 상태(대기/진행/완료) 색상을 그대로 사용 (하위 호환)
+
 ## [1.1.1] - 2026-05-14
 
 ### Changed
@@ -44,7 +54,8 @@
 - Task 상태(대기/진행/완료), 우선순위, 시작/마감/종료 일정 관리
 - 네이티브 알림, 창 상태 유지, 확대/축소
 
-[Unreleased]: https://github.com/ChadJung/ToDo/compare/v1.1.1...HEAD
+[Unreleased]: https://github.com/ChadJung/ToDo/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/ChadJung/ToDo/compare/v1.1.1...v1.2.0
 [1.1.1]: https://github.com/ChadJung/ToDo/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/ChadJung/ToDo/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/ChadJung/ToDo/releases/tag/v1.0.0

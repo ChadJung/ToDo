@@ -244,7 +244,8 @@ input, select, textarea, button { font-family: inherit; }
   color: #e6e6e6;
   word-break: break-word;
 }
-.column-delete {
+.column-delete,
+.column-edit {
   background: transparent;
   border: none;
   color: #777;
@@ -252,9 +253,45 @@ input, select, textarea, button { font-family: inherit; }
   padding: 0 4px;
   line-height: 1;
   border-radius: 3px;
+  cursor: pointer;
   transition: color 0.15s;
 }
+.column-edit { font-size: 13px; }
 .column-delete:hover { color: #ff6b6b; }
+.column-edit:hover { color: #4f8cff; }
+
+/* JOB color accent on board column */
+.column.has-color {
+  border-top: 3px solid var(--job-color);
+}
+
+/* ===== Color swatch picker (JOB modal) ===== */
+.color-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+.color-swatch {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  padding: 0;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.12) inset;
+  transition: transform 0.12s ease, border-color 0.12s ease;
+}
+.color-swatch:hover { transform: scale(1.12); }
+.color-swatch.selected {
+  border-color: #fff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4);
+}
+.color-swatch-none {
+  background:
+    linear-gradient(135deg, transparent 44%, #ff6b6b 44%, #ff6b6b 56%, transparent 56%),
+    #3a3a3c;
+}
 
 .column-body {
   flex: 1;

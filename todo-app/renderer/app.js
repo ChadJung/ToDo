@@ -67,6 +67,11 @@ const notifiedTaskIds = new Set();
 
 const STATUSES = ['대기', '진행', '완료'];
 const PRIORITIES = ['높음', '보통', '낮음'];
+// Preset JOB color palette (mid-tone, readable with white text on dark theme)
+const JOB_COLORS = [
+  '#4f8cff', '#22b8a6', '#34c759', '#e6b800', '#ff9f43',
+  '#ff6b6b', '#e056a8', '#9b6bff', '#5a96c8', '#6b7280'
+];
 
 // ----- DOM -----
 const $ = (sel) => document.querySelector(sel);
@@ -279,9 +284,12 @@ const els = {
   btnAddTaskToolbar: $('#btn-add-task-toolbar'),
   // Job modal
   modalJob: $('#modal-job'),
+  modalJobTitle: $('#modal-job-title'),
   formJob: $('#form-job'),
   jobNoInput: $('#job-no-input'),
   jobTitleInput: $('#job-title-input'),
+  jobColorPicker: $('#job-color-picker'),
+  jobColorInput: $('#job-color-input'),
   // Task modal
   modalTask: $('#modal-task'),
   formTask: $('#form-task'),
@@ -857,6 +865,11 @@ function renderBar(container, seg, weekStart, LANE_H) {
   bar.style.left = `calc(${leftPct}% + 2px)`;
   bar.style.width = `calc(${widthPct}% - 4px)`;
   bar.style.top = (lane * LANE_H) + 'px';
+  const barJobColor = getJobColor(sp.jobNo);
+  if (barJobColor) {
+    bar.style.background = barJobColor;
+    bar.style.borderLeftColor = barJobColor;
+  }
   const showTime = !contLeft && sp.task.startTime ? `<span class="cal-bar-time">${escapeHtml(sp.task.startTime)}</span>` : '';
   bar.innerHTML = `
     <div class="cal-bar-handle left"></div>
@@ -1168,6 +1181,11 @@ function renderCalendarWeek() {
         ev.className = `cal-week-event status-${it.task.status} prio-${it.task.priority}`;
         ev.style.top = top + 'px';
         ev.style.height = height + 'px';
+        const weekJobColor = getJobColor(it.jobNo);
+        if (weekJobColor) {
+          ev.style.background = weekJobColor;
+          ev.style.borderLeftColor = weekJobColor;
+        }
         ev.innerHTML = `
           <div class="cal-week-event-handle top"></div>
           <div class="cal-week-event-time">${escapeHtml(it.task.startTime)}${it.task.endTime ? ' - ' + escapeHtml(it.task.endTime) : ''}</div>
@@ -1182,6 +1200,11 @@ function renderCalendarWeek() {
         // All-day item
         const ev = document.createElement('div');
         ev.className = `cal-allday-event status-${it.task.status} prio-${it.task.priority}`;
+        const alldayJobColor = getJobColor(it.jobNo);
+        if (alldayJobColor) {
+          ev.style.background = alldayJobColor;
+          ev.style.borderLeftColor = alldayJobColor;
+        }
         ev.textContent = formatTaskTitle(it.task);
         ev.title = `[${it.jobNo}] ${formatTaskTitle(it.task)}`;
         ev.addEventListener('click', (e) => {
@@ -1440,6 +1463,10 @@ function renderColumn(job, visibleTasks, totalCount) {
   const col = document.createElement('section');
   col.className = 'column';
   col.dataset.jobNo = job.jobNo;
+  if (job.color) {
+    col.classList.add('has-color');
+    col.style.setProperty('--job-color', job.color);
+  }
 
   // Header
   const header = document.createElement('div');
@@ -1449,11 +1476,16 @@ function renderColumn(job, visibleTasks, totalCount) {
       <span class="column-jobno">${escapeHtml(job.jobNo)}</span>
       <div style="display:flex;align-items:center;gap:6px;">
         <span class="column-count">${visibleTasks.length}/${totalCount}</span>
+        <button class="column-edit" title="JOB 수정" data-action="edit-job">✎</button>
         <button class="column-delete" title="JOB 삭제" data-action="delete-job">×</button>
       </div>
     </div>
     <div class="column-title">${escapeHtml(job.title)}</div>
   `;
+  header.querySelector('[data-action="edit-job"]').addEventListener('click', (e) => {
+    e.stopPropagation();
+    openJobModal(job.jobNo);
+  });
   header.querySelector('[data-action="delete-job"]').addEventListener('click', (e) => {
     e.stopPropagation();
     deleteJob(job.jobNo);
@@ -1493,6 +1525,8 @@ function renderCard(jobNo, task) {
   card.className = `card status-${task.status}`;
   card.dataset.id = task.id;
   card.dataset.jobNo = jobNo;
+  const cardJobColor = getJobColor(jobNo);
+  if (cardJobColor) card.style.borderLeft = `3px solid ${cardJobColor}`;
 
   const overdue = isOverdue(task.dueDate, task.status);
   const dueText = task.dueDate ? task.dueDate : '';
@@ -1558,11 +1592,45 @@ function renderCard(jobNo, task) {
 }
 
 // ----- Job actions -----
-function openJobModal() {
-  els.jobNoInput.value = '';
-  els.jobTitleInput.value = '';
+function getJobColor(jobNo) {
+  const job = findJob(jobNo);
+  return (job && job.color) ? job.color : '';
+}
+
+function buildJobColorPicker(selected) {
+  const wrap = els.jobColorPicker;
+  wrap.innerHTML = '';
+  els.jobColorInput.value = selected || '';
+  const mkSwatch = (color) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'color-swatch' + (color ? '' : ' color-swatch-none');
+    if (color) b.style.background = color;
+    b.dataset.color = color;
+    b.title = color || '색상 없음';
+    if ((selected || '') === color) b.classList.add('selected');
+    b.addEventListener('click', () => {
+      els.jobColorInput.value = color;
+      wrap.querySelectorAll('.color-swatch').forEach(s => s.classList.remove('selected'));
+      b.classList.add('selected');
+    });
+    return b;
+  };
+  wrap.appendChild(mkSwatch(''));
+  JOB_COLORS.forEach(c => wrap.appendChild(mkSwatch(c)));
+}
+
+function openJobModal(jobNo) {
+  const editing = !!jobNo;
+  const job = editing ? findJob(jobNo) : null;
+  if (editing && !job) return;
+  els.modalJobTitle.textContent = editing ? 'JOB 수정' : 'JOB 추가';
+  els.jobNoInput.value = editing ? job.jobNo : '';
+  els.jobNoInput.readOnly = editing;
+  els.jobTitleInput.value = editing ? job.title : '';
+  buildJobColorPicker(editing ? (job.color || '') : '');
   els.modalJob.classList.remove('hidden');
-  setTimeout(() => els.jobNoInput.focus(), 50);
+  setTimeout(() => (editing ? els.jobTitleInput : els.jobNoInput).focus(), 50);
 }
 function closeJobModal() { els.modalJob.classList.add('hidden'); }
 
@@ -1570,14 +1638,23 @@ async function submitJobForm(e) {
   e.preventDefault();
   const jobNo = els.jobNoInput.value.trim();
   const title = els.jobTitleInput.value.trim();
+  const color = els.jobColorInput.value || '';
   if (!jobNo || !title) return;
-  if (findJob(jobNo)) {
-    showAlert('이미 존재하는 JOB 번호입니다.');
-    return;
+  const editing = els.jobNoInput.readOnly;
+  if (editing) {
+    const job = findJob(jobNo);
+    if (!job) return;
+    job.title = title;
+    job.color = color;
+  } else {
+    if (findJob(jobNo)) {
+      showAlert('이미 존재하는 JOB 번호입니다.');
+      return;
+    }
+    state.data.jobs.push({ jobNo, title, color, tasks: [] });
+    state.lastActiveJobNo = jobNo;
   }
-  state.data.jobs.push({ jobNo, title, tasks: [] });
   await saveData();
-  state.lastActiveJobNo = jobNo;
   closeJobModal();
   renderAll();
 }
@@ -2789,7 +2866,7 @@ const Datepicker = (() => {
 
 // ----- Event bindings -----
 function bindEvents() {
-  els.btnAddJob.addEventListener('click', openJobModal);
+  els.btnAddJob.addEventListener('click', () => openJobModal());
 
   els.formJob.addEventListener('submit', submitJobForm);
   els.formTask.addEventListener('submit', submitTaskForm);
