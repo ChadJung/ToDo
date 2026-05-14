@@ -290,6 +290,8 @@ const els = {
   taskJobNoInput: $('#task-jobno-input'),
   taskJobNoSelect: $('#task-jobno-select'),
   taskTitleInput: $('#task-title-input'),
+  taskLabelInput: $('#task-label-input'),
+  taskLabelToggle: $('#task-label-toggle'),
   taskStatusInput: $('#task-status-input'),
   taskPriorityInput: $('#task-priority-input'),
   taskStartInput: $('#task-start-input'),
@@ -382,6 +384,10 @@ function escapeHtml(str) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+}
+function formatTaskTitle(task) {
+  const lbl = task && task.label ? String(task.label).trim() : '';
+  return lbl ? '[' + lbl + '] ' + (task.title || '') : (task && task.title ? task.title : '');
 }
 function findJob(jobNo) {
   return state.data.jobs.find(j => j.jobNo === jobNo) || null;
@@ -849,10 +855,10 @@ function renderBar(container, seg, weekStart, LANE_H) {
   bar.innerHTML = `
     <div class="cal-bar-handle left"></div>
     ${showTime}
-    <span class="cal-bar-title">${escapeHtml(sp.task.title)}</span>
+    <span class="cal-bar-title">${escapeHtml(formatTaskTitle(sp.task))}</span>
     <div class="cal-bar-handle right"></div>
   `;
-  bar.title = `[${sp.jobNo}] ${sp.task.title}`;
+  bar.title = `[${sp.jobNo}] ${formatTaskTitle(sp.task)}`;
   bar.dataset.taskId = sp.task.id;
   bar.dataset.jobNo = sp.jobNo;
   attachMonthBarDrag(bar, sp, weekStart);
@@ -867,6 +873,8 @@ function attachMonthBarDrag(bar, sp, weekStart) {
   let didDrag = false;
   let siblings = [];
   let grid = null;
+  let origTaskFields = null;     // snapshot for resize cancel/restore
+  let lastDCol = 0, lastDRow = 0;
 
   function onDown(e, m) {
     if (e.button !== 0) return;
@@ -884,9 +892,21 @@ function attachMonthBarDrag(bar, sp, weekStart) {
     weekPx = firstWeek ? firstWeek.getBoundingClientRect().height : (gridRect.height / 6);
     siblings = Array.from(grid.querySelectorAll(`.cal-bar[data-task-id="${cssEscape(sp.task.id)}"]`));
     siblings.forEach(s => s.classList.add('dragging'));
+    lastDCol = 0; lastDRow = 0;
+    if (mode === 'resize-l' || mode === 'resize-r') {
+      const t = findTask(sp.jobNo, sp.task.id);
+      origTaskFields = t ? {
+        startDate: t.startDate || '',
+        endDate: t.endDate || '',
+        dueDate: t.dueDate || ''
+      } : null;
+    } else {
+      origTaskFields = null;
+    }
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
   }
+
   function onMove(e) {
     const dx = e.clientX - startX;
     const dy = e.clientY - startY;
@@ -894,54 +914,80 @@ function attachMonthBarDrag(bar, sp, weekStart) {
     if (mode === 'move') {
       const tf = `translate(${dx}px, ${dy}px)`;
       siblings.forEach(s => { s.style.transform = tf; });
-    } else if (mode === 'resize-l') {
-      const first = siblings[0];
-      if (first) {
-        first.style.transform = `translate(${dx}px, ${dy}px)`;
-        first.style.marginRight = `${dx}px`;
-      }
-    } else if (mode === 'resize-r') {
-      const last = siblings[siblings.length - 1];
-      if (last) {
-        last.style.marginRight = `${-dx}px`;
-        last.style.transform = `translateY(${dy}px)`;
-      }
+      return;
     }
+    // Resize modes: live preview by mutating task dates + full re-render per snap step
+    const dCol = Math.round(dx / dayPx);
+    const dRow = Math.round(dy / weekPx);
+    if (dCol === lastDCol && dRow === lastDRow) return;
+    lastDCol = dCol; lastDRow = dRow;
+    const dDays = dRow * 7 + dCol;
+    const task = findTask(sp.jobNo, sp.task.id);
+    if (!task) return;
+    let ns = sp.originalStart, ne = sp.originalEnd;
+    if (mode === 'resize-l') {
+      ns = addDaysYmd(sp.originalStart, dDays);
+      if (diffDaysYmd(ns, sp.originalEnd) < 0) ns = sp.originalEnd;
+    } else if (mode === 'resize-r') {
+      ne = addDaysYmd(sp.originalEnd, dDays);
+      if (diffDaysYmd(sp.originalStart, ne) < 0) ne = sp.originalStart;
+    }
+    applyTaskDateChange(task, ns, ne);
+    renderCalendar();
+    // Keep dragging visual on the freshly rendered segments
+    document.querySelectorAll(`.cal-bar[data-task-id="${cssEscape(sp.task.id)}"]`)
+      .forEach(s => s.classList.add('dragging'));
   }
+
   async function onUp(e) {
     document.removeEventListener('mousemove', onMove);
     document.removeEventListener('mouseup', onUp);
-    siblings.forEach(s => {
-      s.classList.remove('dragging');
-      s.style.transform = '';
-      s.style.marginLeft = '';
-      s.style.marginRight = '';
-    });
-    if (!didDrag) {
-      openTaskModal(sp.jobNo, sp.task.id);
+
+    if (mode === 'move') {
+      siblings.forEach(s => {
+        s.classList.remove('dragging');
+        s.style.transform = '';
+      });
+      if (!didDrag) {
+        openTaskModal(sp.jobNo, sp.task.id);
+        mode = null;
+        return;
+      }
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+      const dCol = Math.round(dx / dayPx);
+      const dRow = Math.round(dy / weekPx);
+      const dDays = dRow * 7 + dCol;
+      if (dDays === 0) { renderCalendar(); mode = null; return; }
+      const task = findTask(sp.jobNo, sp.task.id);
+      if (!task) { mode = null; return; }
+      const newStart = addDaysYmd(sp.originalStart, dDays);
+      const newEnd = addDaysYmd(sp.originalEnd, dDays);
+      applyTaskDateChange(task, newStart, newEnd);
+      await saveData();
+      renderCalendar();
       mode = null;
       return;
     }
-    const dx = e.clientX - startX;
-    const dy = e.clientY - startY;
-    const dCol = Math.round(dx / dayPx);
-    const dRow = Math.round(dy / weekPx);
-    const dDays = dRow * 7 + dCol;
-    if (dDays === 0) { mode = null; return; }
-    const task = findTask(sp.jobNo, sp.task.id);
-    if (!task) { mode = null; return; }
-    let newStart = sp.originalStart, newEnd = sp.originalEnd;
-    if (mode === 'move') {
-      newStart = addDaysYmd(sp.originalStart, dDays);
-      newEnd = addDaysYmd(sp.originalEnd, dDays);
-    } else if (mode === 'resize-l') {
-      newStart = addDaysYmd(sp.originalStart, dDays);
-      if (diffDaysYmd(newStart, sp.originalEnd) > 0) newStart = sp.originalEnd;
-    } else if (mode === 'resize-r') {
-      newEnd = addDaysYmd(sp.originalEnd, dDays);
-      if (diffDaysYmd(sp.originalStart, newEnd) > 0) newEnd = sp.originalStart;
+
+    // Resize modes — task has already been mutated live in onMove
+    const noChange = lastDCol === 0 && lastDRow === 0;
+    if (!didDrag || noChange) {
+      // Restore original fields and re-render clean
+      if (origTaskFields) {
+        const t = findTask(sp.jobNo, sp.task.id);
+        if (t) {
+          t.startDate = origTaskFields.startDate;
+          t.endDate = origTaskFields.endDate;
+          t.dueDate = origTaskFields.dueDate;
+        }
+      }
+      const wasClick = !didDrag;
+      renderCalendar();
+      if (wasClick) openTaskModal(sp.jobNo, sp.task.id);
+      mode = null;
+      return;
     }
-    applyTaskDateChange(task, newStart, newEnd);
     await saveData();
     renderCalendar();
     mode = null;
@@ -1092,11 +1138,13 @@ function renderCalendarWeek() {
   // Place tasks
   for (const it of all) {
     const days = taskOccupiedDays(it.task);
+    // Multi-day spans always render as all-day bands (time grid is for single-day events only)
+    const isMultiDay = days.length > 1;
     for (const k of days) {
       const idx = dayCols.findIndex(d => ymdKey(d.y, d.m, d.d) === k);
       if (idx === -1) continue;
       const hasStartTime = !!it.task.startTime;
-      const isMatchingStart = it.task.startDate === k && hasStartTime;
+      const isMatchingStart = !isMultiDay && it.task.startDate === k && hasStartTime;
       if (isMatchingStart) {
         // Place in time grid
         const [sh, sm] = it.task.startTime.split(':').map(Number);
@@ -1117,19 +1165,19 @@ function renderCalendarWeek() {
         ev.innerHTML = `
           <div class="cal-week-event-handle top"></div>
           <div class="cal-week-event-time">${escapeHtml(it.task.startTime)}${it.task.endTime ? ' - ' + escapeHtml(it.task.endTime) : ''}</div>
-          <div class="cal-week-event-title">${escapeHtml(it.task.title)}</div>
+          <div class="cal-week-event-title">${escapeHtml(formatTaskTitle(it.task))}</div>
           <div class="cal-week-event-jobno">${escapeHtml(it.jobNo)}</div>
           <div class="cal-week-event-handle bottom"></div>
         `;
-        ev.title = `[${it.jobNo}] ${it.task.title}`;
+        ev.title = `[${it.jobNo}] ${formatTaskTitle(it.task)}`;
         attachWeekEventDrag(ev, it.jobNo, it.task.id, HOUR_PX);
         colEls[idx].appendChild(ev);
       } else {
         // All-day item
         const ev = document.createElement('div');
         ev.className = `cal-allday-event status-${it.task.status} prio-${it.task.priority}`;
-        ev.textContent = it.task.title;
-        ev.title = `[${it.jobNo}] ${it.task.title}`;
+        ev.textContent = formatTaskTitle(it.task);
+        ev.title = `[${it.jobNo}] ${formatTaskTitle(it.task)}`;
         ev.addEventListener('click', (e) => {
           e.stopPropagation();
           openTaskModal(it.jobNo, it.task.id);
@@ -1153,6 +1201,7 @@ function attachWeekEventDrag(ev, jobNo, taskId, HOUR_PX) {
   let startX = 0, startY = 0;
   let colPx = 0;
   let didDrag = false;
+  let origTopPx = 0, origHeightPx = 0;
 
   function onDown(e, m) {
     if (e.button !== 0) return;
@@ -1164,6 +1213,8 @@ function attachWeekEventDrag(ev, jobNo, taskId, HOUR_PX) {
     startY = e.clientY;
     const col = ev.parentElement; // .cal-week-day-col
     colPx = col ? col.getBoundingClientRect().width : 0;
+    origTopPx = parseFloat(ev.style.top) || 0;
+    origHeightPx = parseFloat(ev.style.height) || ev.getBoundingClientRect().height;
     ev.classList.add('dragging');
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
@@ -1175,10 +1226,13 @@ function attachWeekEventDrag(ev, jobNo, taskId, HOUR_PX) {
     if (mode === 'move') {
       ev.style.transform = `translate(${dx}px, ${dy}px)`;
     } else if (mode === 'resize-t') {
-      ev.style.transform = `translateY(${dy}px)`;
-      ev.style.marginBottom = `${dy}px`;
+      const newTop = origTopPx + dy;
+      const newHeight = Math.max(20, origHeightPx - dy);
+      ev.style.top = newTop + 'px';
+      ev.style.height = newHeight + 'px';
     } else if (mode === 'resize-b') {
-      ev.style.marginBottom = `${-dy}px`;
+      const newHeight = Math.max(20, origHeightPx + dy);
+      ev.style.height = newHeight + 'px';
     }
   }
   async function onUp(e) {
@@ -1197,7 +1251,13 @@ function attachWeekEventDrag(ev, jobNo, taskId, HOUR_PX) {
     // Snap delta minutes (vertical) and column delta (horizontal)
     const deltaMin = Math.round((dy / HOUR_PX) * 60 / SNAP_MIN) * SNAP_MIN;
     const dCol = colPx > 0 ? Math.round(dx / colPx) : 0;
-    if (deltaMin === 0 && dCol === 0) { mode = null; return; }
+    if (deltaMin === 0 && dCol === 0) {
+      // Resize preview may have nudged top/height; restore originals
+      ev.style.top = origTopPx + 'px';
+      ev.style.height = origHeightPx + 'px';
+      mode = null;
+      return;
+    }
 
     const task = findTask(jobNo, taskId);
     if (!task || !task.startTime) { mode = null; return; }
@@ -1330,7 +1390,7 @@ function renderListRow(jobNo, task) {
   const endCell = formatDateTime(task.endDate, task.endTime);
   tr.innerHTML = `
     <td class="cell-jobno">${escapeHtml(jobNo)}</td>
-    <td class="cell-title">${escapeHtml(task.title)}</td>
+    <td class="cell-title">${escapeHtml(formatTaskTitle(task))}</td>
     <td><span class="status-badge s-${escapeHtml(task.status)}">${escapeHtml(task.status)}</span></td>
     <td><span class="badge badge-priority-${escapeHtml(task.priority)}">${escapeHtml(task.priority)}</span></td>
     <td class="cell-date">${startCell ? escapeHtml(startCell) : '-'}</td>
@@ -1437,7 +1497,7 @@ function renderCard(jobNo, task) {
   if (endText) timeBits.push(`<span><span class="time-label">종료</span>${escapeHtml(endText)}</span>`);
 
   card.innerHTML = `
-    <div class="card-title">${escapeHtml(task.title)}</div>
+    <div class="card-title">${escapeHtml(formatTaskTitle(task))}</div>
     <div class="card-meta">
       <button type="button" class="badge badge-priority-${escapeHtml(task.priority)} priority-btn" data-no-edit data-action="edit-priority" title="우선순위 변경">${escapeHtml(task.priority)}</button>
       ${dueText ? `<span class="card-due${overdue ? ' overdue' : ''}">📅 ${escapeHtml(dueText)}${overdue ? ' (지남)' : ''}</span>` : ''}
@@ -1503,7 +1563,7 @@ async function submitJobForm(e) {
   await saveData();
   state.lastActiveJobNo = jobNo;
   closeJobModal();
-  renderBoard();
+  renderAll();
 }
 
 async function deleteJob(jobNo) {
@@ -1544,6 +1604,7 @@ function openTaskModal(jobNo, taskId) {
     els.taskIdInput.value = task.id;
     els.taskJobNoInput.value = jobNo;
     els.taskTitleInput.value = task.title || '';
+    els.taskLabelInput.value = task.label || '';
     els.taskStatusInput.value = task.status || '대기';
     els.taskPriorityInput.value = task.priority || '보통';
     els.taskStartInput.value = task.startDate || '';
@@ -1558,6 +1619,7 @@ function openTaskModal(jobNo, taskId) {
     els.taskIdInput.value = '';
     els.taskJobNoInput.value = jobNo || '';
     els.taskTitleInput.value = '';
+    els.taskLabelInput.value = '';
     els.taskStatusInput.value = '대기';
     els.taskPriorityInput.value = '보통';
     els.taskStartInput.value = '';
@@ -1574,6 +1636,7 @@ function openTaskModal(jobNo, taskId) {
 }
 function closeTaskModal() {
   if (typeof Datepicker !== 'undefined') Datepicker.close();
+  if (typeof LabelPicker !== 'undefined') LabelPicker.close();
   els.modalTask.classList.add('hidden');
 }
 
@@ -1606,6 +1669,7 @@ async function submitTaskForm(e) {
   const taskData = {
     id,
     title: els.taskTitleInput.value.trim(),
+    label: (els.taskLabelInput.value || '').trim().slice(0, 10),
     status: newStatus,
     priority: els.taskPriorityInput.value,
     startDate: els.taskStartInput.value || '',
@@ -1646,7 +1710,7 @@ async function submitTaskForm(e) {
   state.lastActiveJobNo = targetJobNo;
   await saveData();
   closeTaskModal();
-  renderBoard();
+  renderAll();
 }
 
 async function deleteTaskFromModal() {
@@ -1662,7 +1726,7 @@ async function deleteTaskFromModal() {
   }
   await saveData();
   closeTaskModal();
-  renderBoard();
+  renderAll();
 }
 
 async function changeTaskPriority(jobNo, taskId, newPriority) {
@@ -1817,8 +1881,13 @@ const Tour = (() => {
     },
     {
       targetSelector: '.view-toggle',
-      title: '보드 / 목록 전환',
-      body: '보드는 JOB별 칸반, 목록은 전체 Task 테이블입니다. 단축키: <strong>Ctrl+Tab</strong>'
+      title: '보드 / 캘린더 / 목록',
+      body: '보드는 JOB별 칸반, 캘린더는 월/주 일정표, 목록은 전체 Task 테이블입니다. 단축키: <strong>1</strong>=보드, <strong>2</strong>=캘린더, <strong>3</strong>=목록 (또는 <strong>Ctrl+Tab</strong>으로 순환)'
+    },
+    {
+      targetSelector: '#view-calendar',
+      title: '캘린더 보기',
+      body: '월/주 단위로 일정을 한눈에 볼 수 있어요. 일정 bar를 잡고 끌면 날짜·시간이 바뀌고, 양 끝을 잡으면 기간 조절이 가능합니다. 빈 날짜를 더블클릭하면 그 날짜로 Task 추가가 열립니다. 단축키: <strong>A / D</strong> 또는 <strong>← / →</strong>로 이전·다음 이동, <strong>Q</strong>=월, <strong>E</strong>=주.'
     },
     {
       targetSelector: '__filter_group__',
@@ -2006,6 +2075,11 @@ const Tour = (() => {
     window.addEventListener('resize', resizeHandler);
     document.addEventListener('keydown', keyHandler, true);
     render();
+    // Move focus to the Next button so Enter/Space immediately advances
+    setTimeout(() => {
+      const nextBtn = tooltipEl && tooltipEl.querySelector('.tour-btn-next');
+      if (nextBtn) nextBtn.focus();
+    }, 0);
   }
 
   function next() {
@@ -2139,6 +2213,134 @@ const PriorityPicker = (() => {
   }
 
   return { open, close };
+})();
+
+// ----- Label Picker (dropdown of existing labels for Task modal) -----
+const LabelPicker = (() => {
+  let popup = null;
+  let activeInput = null;
+  let outsideHandler = null;
+  let keyHandler = null;
+
+  function gatherLabels() {
+    const set = new Set();
+    for (const job of state.data.jobs) {
+      if (!Array.isArray(job.tasks)) continue;
+      for (const t of job.tasks) {
+        const v = t && t.label ? String(t.label).trim() : '';
+        if (v) set.add(v);
+      }
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'ko'));
+  }
+
+  function position(anchor) {
+    if (!popup || !anchor) return;
+    const r = anchor.getBoundingClientRect();
+    popup.style.minWidth = r.width + 'px';
+    popup.style.left = r.left + 'px';
+    popup.style.top = (r.bottom + 4) + 'px';
+    const pr = popup.getBoundingClientRect();
+    if (pr.right > window.innerWidth - 8) {
+      popup.style.left = Math.max(8, window.innerWidth - pr.width - 8) + 'px';
+    }
+    if (pr.bottom > window.innerHeight - 8) {
+      popup.style.top = (r.top - pr.height - 4) + 'px';
+    }
+  }
+
+  function open(anchor, inputEl) {
+    close();
+    activeInput = inputEl;
+    const labels = gatherLabels();
+    const cur = (inputEl.value || '').trim();
+    popup = document.createElement('div');
+    popup.className = 'label-popup';
+    if (labels.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'label-popup-empty';
+      empty.textContent = '저장된 라벨이 없습니다. 직접 입력하세요.';
+      popup.appendChild(empty);
+    } else {
+      labels.forEach(l => {
+        const item = document.createElement('div');
+        item.className = 'label-popup-item' + (l === cur ? ' active' : '');
+
+        const text = document.createElement('button');
+        text.type = 'button';
+        text.className = 'label-popup-item-text';
+        text.textContent = l;
+        text.addEventListener('mousedown', (e) => e.preventDefault());
+        text.addEventListener('click', () => {
+          const inp = activeInput;
+          if (!inp) return;
+          inp.value = l;
+          inp.dispatchEvent(new Event('change', { bubbles: true }));
+          close();
+          inp.focus();
+        });
+        item.appendChild(text);
+
+        const del = document.createElement('button');
+        del.type = 'button';
+        del.className = 'label-popup-item-del';
+        del.textContent = '×';
+        del.title = `'${l}' 라벨 삭제 (모든 task에서 제거)`;
+        del.addEventListener('mousedown', (e) => e.preventDefault());
+        del.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const inp = activeInput;
+          const ok = await showConfirm(`라벨 "${l}"을(를) 모든 task에서 제거하시겠습니까?`, '라벨 삭제');
+          if (!ok) {
+            if (inp && document.body.contains(inp)) open(inp, inp);
+            return;
+          }
+          for (const job of state.data.jobs) {
+            if (!Array.isArray(job.tasks)) continue;
+            for (const t of job.tasks) {
+              if (t.label && String(t.label).trim() === l) {
+                t.label = '';
+                t.updatedAt = nowIso();
+              }
+            }
+          }
+          if (inp && (inp.value || '').trim() === l) inp.value = '';
+          await saveData();
+          renderAll();
+          if (inp && document.body.contains(inp)) open(inp, inp);
+        });
+        item.appendChild(del);
+
+        popup.appendChild(item);
+      });
+    }
+    document.body.appendChild(popup);
+    popup.style.visibility = 'hidden';
+    requestAnimationFrame(() => { position(anchor); popup.style.visibility = ''; });
+
+    outsideHandler = (e) => {
+      if (!popup) return;
+      if (popup.contains(e.target)) return;
+      if (e.target === anchor || e.target === activeInput) return;
+      close();
+    };
+    keyHandler = (e) => { if (e.key === 'Escape') { e.preventDefault(); close(); } };
+    document.addEventListener('mousedown', outsideHandler, true);
+    document.addEventListener('keydown', keyHandler, true);
+  }
+
+  function close() {
+    if (popup && popup.parentNode) popup.parentNode.removeChild(popup);
+    popup = null;
+    activeInput = null;
+    if (outsideHandler) document.removeEventListener('mousedown', outsideHandler, true);
+    if (keyHandler) document.removeEventListener('keydown', keyHandler, true);
+    outsideHandler = null;
+    keyHandler = null;
+  }
+
+  function isOpen() { return !!popup; }
+  return { open, close, isOpen };
 })();
 
 // ----- Status Filter (checkbox dropdown) -----
@@ -2499,6 +2701,16 @@ function bindEvents() {
   els.formTask.addEventListener('submit', submitTaskForm);
   els.btnDeleteTask.addEventListener('click', deleteTaskFromModal);
 
+  // Label picker toggle
+  if (els.taskLabelToggle && els.taskLabelInput) {
+    els.taskLabelToggle.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (LabelPicker.isOpen()) LabelPicker.close();
+      else LabelPicker.open(els.taskLabelInput, els.taskLabelInput);
+    });
+  }
+
   // Modal close handlers
   document.querySelectorAll('[data-close]').forEach(el => {
     el.addEventListener('click', () => {
@@ -2573,7 +2785,7 @@ function bindEvents() {
     }
     if (isCtrl && e.key === 'Tab') {
       e.preventDefault();
-      const order = ['board', 'list', 'calendar'];
+      const order = ['board', 'calendar', 'list'];
       const idx = order.indexOf(state.viewMode);
       setViewMode(order[(idx + 1) % order.length]);
       return;
@@ -2583,6 +2795,48 @@ function bindEvents() {
       els.modalJob.classList.add('hidden');
       els.modalTask.classList.add('hidden');
       els.modalSettings.classList.add('hidden');
+    }
+
+    // View mode quick switch (1/2/3) — any mode, when not editing/modal
+    if (!isCtrl) {
+      const ae = document.activeElement;
+      const inEditing = ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName);
+      const anyModalOpen = !!document.querySelector('.modal:not(.hidden)');
+      if (!inEditing && !anyModalOpen) {
+        if (e.key === '1') { e.preventDefault(); setViewMode('board'); return; }
+        if (e.key === '2') { e.preventDefault(); setViewMode('calendar'); return; }
+        if (e.key === '3') { e.preventDefault(); setViewMode('list'); return; }
+      }
+    }
+
+    // Calendar navigation (A/D or Left/Right) when in calendar mode and not editing
+    if (state.viewMode === 'calendar' && !isCtrl) {
+      const ae = document.activeElement;
+      const inEditing = ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName);
+      const anyModalOpen = !!document.querySelector('.modal:not(.hidden)');
+      if (!inEditing && !anyModalOpen) {
+        const k = e.key;
+        if (k === 'ArrowLeft' || k === 'a' || k === 'A') {
+          e.preventDefault();
+          calendarNavigate(-1);
+          return;
+        }
+        if (k === 'ArrowRight' || k === 'd' || k === 'D') {
+          e.preventDefault();
+          calendarNavigate(1);
+          return;
+        }
+        if (k === 'q' || k === 'Q') {
+          e.preventDefault();
+          setCalendarMode('month');
+          return;
+        }
+        if (k === 'e' || k === 'E') {
+          e.preventDefault();
+          setCalendarMode('week');
+          return;
+        }
+      }
     }
   });
 }

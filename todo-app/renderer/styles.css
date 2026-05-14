@@ -114,17 +114,41 @@ input, select, textarea, button { font-family: inherit; }
   border-color: #4f8cff;
 }
 
-/* Selects */
+/* Toolbar select */
 .select {
-  padding: 6px 10px;
-  background: #2d2d30;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  padding: 6px 26px 6px 10px;
+  background-color: #2d2d30;
   color: #e6e6e6;
   border: 1px solid #555;
   border-radius: 4px;
   font-size: 13px;
   cursor: pointer;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1,1L5,5L9,1' fill='none' stroke='%239a9a9a' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
 }
 .select:focus { outline: none; border-color: #4f8cff; }
+.select::-ms-expand { display: none; }
+
+/* Form selects (Task / Job / Settings modal) — same chevron, keep input bg/padding */
+#form-task select,
+#form-job select,
+#form-settings select {
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  -moz-appearance: none !important;
+  padding-right: 28px !important;
+  cursor: pointer;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1,1L5,5L9,1' fill='none' stroke='%239a9a9a' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") !important;
+  background-repeat: no-repeat !important;
+  background-position: right 8px center !important;
+}
+#form-task select::-ms-expand,
+#form-job select::-ms-expand,
+#form-settings select::-ms-expand { display: none; }
 
 /* Zoom (content area only, toolbar stays fixed) */
 :root { --zoom: 1; }
@@ -417,6 +441,121 @@ input, select, textarea, button { font-family: inherit; }
   grid-template-columns: 1fr 1fr;
   gap: 12px;
 }
+.form-row.form-row-label-title {
+  grid-template-columns: 156px minmax(0, 1fr);
+  column-gap: 14px;
+}
+.form-row.form-row-label-title > label { min-width: 0; }
+
+/* Force form inputs to fill their grid cell */
+#form-task label > input,
+#form-task label > select,
+#form-task label > textarea,
+#form-task .label-input-wrap,
+#form-task .tp-wrap {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+/* Label input combo (input + dropdown toggle) */
+.label-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  width: 100%;
+}
+.label-input-wrap input {
+  flex: 1 1 0;
+  min-width: 0;
+  padding-right: 22px !important;
+}
+.label-input-toggle {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 20px;
+  background: transparent;
+  border: none;
+  color: transparent;       /* hide ▾ glyph; show SVG instead */
+  cursor: pointer;
+  font-size: 0;
+  padding: 0;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1,1L5,5L9,1' fill='none' stroke='%239a9a9a' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: center;
+}
+.label-input-toggle:hover {
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1,1L5,5L9,1' fill='none' stroke='%23e6e6e6' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+
+.label-popup {
+  position: fixed;
+  z-index: 9600;
+  background: #2a2a2a;
+  border: 1px solid #3a3a3c;
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 140px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.label-popup-item {
+  display: flex;
+  align-items: stretch;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  overflow: hidden;
+}
+.label-popup-item:hover {
+  background: #3a3a3c;
+  border-color: rgba(255,255,255,0.1);
+}
+.label-popup-item.active {
+  background: rgba(79, 140, 255, 0.18);
+  border-color: rgba(79, 140, 255, 0.45);
+}
+.label-popup-item-text {
+  flex: 1;
+  text-align: left;
+  background: transparent;
+  border: none;
+  color: #e6e6e6;
+  font: inherit;
+  padding: 5px 10px;
+  cursor: pointer;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.label-popup-item.active .label-popup-item-text { color: #cfe0ff; }
+.label-popup-item-del {
+  background: transparent;
+  border: none;
+  color: #888;
+  font-size: 14px;
+  width: 22px;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.label-popup-item-del:hover {
+  color: #ff6b6b;
+  background: rgba(255, 107, 107, 0.12);
+}
+.label-popup-empty {
+  padding: 8px 10px;
+  color: #888;
+  font-size: 12px;
+  font-style: italic;
+}
 .modal-actions {
   display: flex;
   align-items: center;
@@ -571,11 +710,20 @@ input, select, textarea, button { font-family: inherit; }
   align-items: center;
   gap: 6px;
 }
+.cal-nav-group .btn {
+  height: 30px;
+  padding-top: 0;
+  padding-bottom: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
 .cal-nav-btn {
   width: 30px;
-  padding: 4px 0;
+  padding-left: 0;
+  padding-right: 0;
   font-size: 16px;
-  line-height: 1;
 }
 .cal-title {
   font-size: 15px;

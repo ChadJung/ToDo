@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'" />
   <title>TodoApp</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
@@ -67,8 +67,8 @@
         <button id="sort-direction" class="btn" title="정렬 방향 전환">↓</button>
         <div class="view-toggle" role="group" aria-label="보기 모드">
           <button id="view-board" class="view-btn active" type="button">보드</button>
-          <button id="view-list" class="view-btn" type="button">목록</button>
           <button id="view-calendar" class="view-btn" type="button">캘린더</button>
+          <button id="view-list" class="view-btn" type="button">목록</button>
         </div>
         <button id="btn-add-job" class="btn btn-success">+ JOB 추가 (Ctrl+Q)</button>
         <button id="btn-add-task-toolbar" class="btn btn-primary">+ Task 추가 (Ctrl+E)</button>
@@ -153,9 +153,17 @@
       <form id="form-task">
         <input type="hidden" id="task-id-input" />
         <input type="hidden" id="task-jobno-input" />
-        <label>제목
-          <input type="text" id="task-title-input" required placeholder="할 일 제목" />
-        </label>
+        <div class="form-row form-row-label-title">
+          <label>라벨
+            <div class="label-input-wrap">
+              <input type="text" id="task-label-input" maxlength="10" placeholder="선택/입력" autocomplete="off" />
+              <button type="button" class="label-input-toggle" id="task-label-toggle" tabindex="-1" aria-label="라벨 목록 열기">▾</button>
+            </div>
+          </label>
+          <label>제목
+            <input type="text" id="task-title-input" required placeholder="할 일 제목" />
+          </label>
+        </div>
         <div class="form-row">
           <label>JOB
             <select id="task-jobno-select"></select>
