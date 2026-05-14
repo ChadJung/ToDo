@@ -634,10 +634,16 @@ function renderCalendar() {
   } else {
     const sw = startOfWeekYmd(f);
     const ew = addDaysYmd(sw, 6);
-    const sameMonth = sw.m === ew.m;
-    els.calTitle.textContent = sameMonth
-      ? `${sw.y}년 ${sw.m + 1}월 ${sw.d}일 ~ ${ew.d}일`
-      : `${sw.y}.${pad2(sw.m + 1)}.${pad2(sw.d)} ~ ${ew.y}.${pad2(ew.m + 1)}.${pad2(ew.d)}`;
+    const start = `${sw.y}년 ${sw.m + 1}월 ${sw.d}일`;
+    let end;
+    if (sw.y !== ew.y) {
+      end = `${ew.y}년 ${ew.m + 1}월 ${ew.d}일`;
+    } else if (sw.m !== ew.m) {
+      end = `${ew.m + 1}월 ${ew.d}일`;
+    } else {
+      end = `${ew.d}일`;
+    }
+    els.calTitle.textContent = `${start} ~ ${end}`;
     renderCalendarWeek();
   }
   // Total task count
@@ -1497,6 +1503,7 @@ function renderCard(jobNo, task) {
   if (endText) timeBits.push(`<span><span class="time-label">종료</span>${escapeHtml(endText)}</span>`);
 
   card.innerHTML = `
+    <button type="button" class="card-delete" data-no-edit data-action="delete" title="삭제" aria-label="Task 삭제">×</button>
     <div class="card-title">${escapeHtml(formatTaskTitle(task))}</div>
     <div class="card-meta">
       <button type="button" class="badge badge-priority-${escapeHtml(task.priority)} priority-btn" data-no-edit data-action="edit-priority" title="우선순위 변경">${escapeHtml(task.priority)}</button>
@@ -1535,6 +1542,15 @@ function renderCard(jobNo, task) {
       PriorityPicker.open(prBtn, task.priority, (next) => {
         changeTaskPriority(jobNo, task.id, next);
       });
+    });
+  }
+
+  // Delete button (top-right corner)
+  const delBtn = card.querySelector('.card-delete');
+  if (delBtn) {
+    delBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      deleteTask(jobNo, task.id);
     });
   }
 
@@ -1713,20 +1729,24 @@ async function submitTaskForm(e) {
   renderAll();
 }
 
-async function deleteTaskFromModal() {
-  const id = els.taskIdInput.value;
-  const jobNo = els.taskJobNoInput.value;
-  if (!id || !jobNo) return;
+async function deleteTask(jobNo, id) {
   const task = findTask(jobNo, id);
-  if (!task) return;
-  if (!(await showConfirm(`Task "${task.title}"를 삭제하시겠습니까?`, 'Task 삭제'))) return;
+  if (!task) return false;
+  if (!(await showConfirm(`Task "${task.title}"를 삭제하시겠습니까?`, 'Task 삭제'))) return false;
   const job = findJob(jobNo);
   if (job && Array.isArray(job.tasks)) {
     job.tasks = job.tasks.filter(t => t.id !== id);
   }
   await saveData();
-  closeTaskModal();
   renderAll();
+  return true;
+}
+
+async function deleteTaskFromModal() {
+  const id = els.taskIdInput.value;
+  const jobNo = els.taskJobNoInput.value;
+  if (!id || !jobNo) return;
+  if (await deleteTask(jobNo, id)) closeTaskModal();
 }
 
 async function changeTaskPriority(jobNo, taskId, newPriority) {
@@ -1880,6 +1900,24 @@ const Tour = (() => {
       body: '선택된 JOB에 할 일을 추가합니다. 단축키: <strong>Ctrl+E</strong>'
     },
     {
+      targetSelector: '.form-row-label-title',
+      modalStep: true,
+      title: '라벨 & 제목',
+      body: '제목 앞에 <strong>라벨</strong>을 붙이면 카드와 캘린더에 <strong>[라벨] 제목</strong> 형태로 표시됩니다. 최대 10자이며, <strong>▾</strong> 버튼으로 기존 라벨을 골라 넣거나 항목별 <strong>×</strong>로 삭제할 수 있습니다.'
+    },
+    {
+      targetSelector: '__task_status_row__',
+      modalStep: true,
+      title: '상태 & 우선순위',
+      body: '상태(대기/진행/완료)와 우선순위를 지정합니다. 보드 뷰의 칸 위치와 카드 색상이 이 값에 따라 바뀝니다.'
+    },
+    {
+      targetSelector: '__task_date_rows__',
+      modalStep: true,
+      title: '일정 입력',
+      body: '시작일·마감일·종료일과 시간을 넣으면 캘린더에 일정 bar로 표시됩니다. 시간까지 지정하면 주간 캘린더의 해당 시간대에 배치됩니다.'
+    },
+    {
       targetSelector: '.view-toggle',
       title: '보드 / 캘린더 / 목록',
       body: '보드는 JOB별 칸반, 캘린더는 월/주 일정표, 목록은 전체 Task 테이블입니다. 단축키: <strong>1</strong>=보드, <strong>2</strong>=캘린더, <strong>3</strong>=목록 (또는 <strong>Ctrl+Tab</strong>으로 순환)'
@@ -1932,8 +1970,58 @@ const Tour = (() => {
       const visible = !els.board.classList.contains('hidden') ? els.board : els.listView;
       return visible.getBoundingClientRect();
     }
+    if (selector === '__task_status_row__') {
+      const sEl = document.querySelector('#task-status-input');
+      const row = sEl && sEl.closest('.form-row');
+      return row ? row.getBoundingClientRect() : null;
+    }
+    if (selector === '__task_date_rows__') {
+      const sEl = document.querySelector('#task-start-input');
+      const eEl = document.querySelector('#task-end-input');
+      const r1 = sEl && sEl.closest('.form-row');
+      const r2 = eEl && eEl.closest('.form-row');
+      if (!r1 || !r2) return null;
+      const a = r1.getBoundingClientRect();
+      const b = r2.getBoundingClientRect();
+      const left = Math.min(a.left, b.left);
+      const top = Math.min(a.top, b.top);
+      const right = Math.max(a.right, b.right);
+      const bottom = Math.max(a.bottom, b.bottom);
+      return { left, top, width: right - left, height: bottom - top, right, bottom };
+    }
     const el = document.querySelector(selector);
     return el ? el.getBoundingClientRect() : null;
+  }
+
+  function openTaskModalForTour() {
+    els.modalTaskTitle.textContent = 'Task 추가';
+    els.taskIdInput.value = '';
+    els.taskJobNoInput.value = '';
+    els.taskTitleInput.value = '';
+    els.taskLabelInput.value = '';
+    els.taskStatusInput.value = '대기';
+    els.taskPriorityInput.value = '보통';
+    els.taskStartInput.value = '';
+    els.taskStartTimeInput.value = '';
+    els.taskDueInput.value = '';
+    els.taskEndInput.value = '';
+    els.taskEndTimeInput.value = '';
+    els.taskMemoInput.value = '';
+    els.btnDeleteTask.classList.add('hidden');
+    populateJobSelect();
+    els.modalTask.classList.remove('hidden');
+  }
+
+  function syncModalForStep() {
+    const step = steps[currentIdx];
+    const wantModal = !!(step && step.modalStep);
+    const modalOpen = !els.modalTask.classList.contains('hidden');
+    if (wantModal && !modalOpen) {
+      openTaskModalForTour();
+    } else if (!wantModal && modalOpen) {
+      els.modalTask.classList.add('hidden');
+    }
+    document.body.classList.toggle('tour-modal-step', wantModal);
   }
 
   function buildDOM() {
@@ -2074,6 +2162,7 @@ const Tour = (() => {
     keyHandler = onKey;
     window.addEventListener('resize', resizeHandler);
     document.addEventListener('keydown', keyHandler, true);
+    syncModalForStep();
     render();
     // Move focus to the Next button so Enter/Space immediately advances
     setTimeout(() => {
@@ -2089,6 +2178,7 @@ const Tour = (() => {
       return;
     }
     currentIdx += 1;
+    syncModalForStep();
     render();
   }
 
@@ -2096,6 +2186,7 @@ const Tour = (() => {
     if (!active) return;
     if (currentIdx <= 0) return;
     currentIdx -= 1;
+    syncModalForStep();
     render();
   }
 
@@ -2103,6 +2194,7 @@ const Tour = (() => {
     if (!active) return;
     if (idx < 0 || idx >= steps.length) return;
     currentIdx = idx;
+    syncModalForStep();
     render();
   }
 
@@ -2114,6 +2206,8 @@ const Tour = (() => {
     if (!active) return;
     active = false;
     document.body.classList.remove('tour-active');
+    document.body.classList.remove('tour-modal-step');
+    els.modalTask.classList.add('hidden');
     if (resizeHandler) window.removeEventListener('resize', resizeHandler);
     if (keyHandler) document.removeEventListener('keydown', keyHandler, true);
     resizeHandler = null;

@@ -4,6 +4,26 @@ const fs = require('fs');
 
 const isDev = !app.isPackaged;
 
+// Some environments (VMs, RDP sessions, older/unusual GPU drivers) fail to
+// composite GPU-accelerated windows, leaving the process alive but no visible
+// window. Disabling hardware acceleration trades negligible perf for reliable
+// rendering across machines.
+app.disableHardwareAcceleration();
+
+// Ensure only one instance runs; a second launch focuses the existing window.
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+    }
+  });
+}
+
 const DEFAULT_SETTINGS = {
   zoomLevel: 1,
   completeBehavior: 'ask',
@@ -206,14 +226,37 @@ function createWindow(splash, splashShownAt) {
   });
 
   const MIN_SPLASH_DURATION = 1200;
+  const MAX_SPLASH_DURATION = 8000;
+  let shown = false;
+
+  const revealWindow = () => {
+    if (shown) return;
+    shown = true;
+    if (splash && !splash.isDestroyed()) splash.close();
+    if (win && !win.isDestroyed()) {
+      win.show();
+      win.focus();
+    }
+  };
 
   win.once('ready-to-show', () => {
     const elapsed = Date.now() - (splashShownAt || Date.now());
     const remaining = Math.max(0, MIN_SPLASH_DURATION - elapsed);
-    setTimeout(() => {
-      if (splash && !splash.isDestroyed()) splash.close();
-      win.show();
-    }, remaining);
+    setTimeout(revealWindow, remaining);
+  });
+
+  // Safety net: if 'ready-to-show' never fires (renderer load failure, GPU
+  // compositing issue, etc.), force the window visible so the app is usable.
+  setTimeout(revealWindow, MAX_SPLASH_DURATION);
+
+  win.webContents.on('did-fail-load', (_e, errorCode, errorDesc, url) => {
+    console.error(`Renderer failed to load (${errorCode} ${errorDesc}): ${url}`);
+    revealWindow();
+  });
+
+  win.webContents.on('render-process-gone', (_e, details) => {
+    console.error('Renderer process gone:', details && details.reason);
+    revealWindow();
   });
 }
 
@@ -318,7 +361,11 @@ ipcMain.handle('notify:show', async (_event, payload) => {
 });
 
 function startApp() {
-  ensureDataFile();
+  try {
+    ensureDataFile();
+  } catch (err) {
+    console.error('Failed to ensure data file:', err);
+  }
   const splash = createSplashWindow();
   const splashShownAt = Date.now();
 
