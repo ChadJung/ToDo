@@ -17,7 +17,8 @@ const DEFAULT_SETTINGS = {
   zoomLevel: 1,
   completeBehavior: 'ask',          // 'ask' | 'auto' | 'manual'
   notificationEnabled: true,
-  notificationMinutesBefore: 5
+  notificationMinutesBefore: 5,
+  autoStart: null                   // null = never asked, true/false once user has decided
 };
 
 let settings = Object.assign({}, DEFAULT_SETTINGS);
@@ -324,6 +325,11 @@ const els = {
   settingsCompleteBehavior: $('#settings-complete-behavior'),
   settingsNotifyEnabled: $('#settings-notify-enabled'),
   settingsNotifyMinutes: $('#settings-notify-minutes'),
+  settingsAutoStart: $('#settings-autostart'),
+  // First-run auto-start prompt
+  modalAutoStartConfirm: $('#modal-autostart-confirm'),
+  autoStartConfirmYes: $('#autostart-confirm-yes'),
+  autoStartConfirmNo: $('#autostart-confirm-no'),
   // Complete confirm modal
   modalCompleteConfirm: $('#modal-complete-confirm'),
   completeConfirmRemember: $('#complete-confirm-remember'),
@@ -371,6 +377,51 @@ async function loadSettings() {
   settings.notificationEnabled = !!settings.notificationEnabled;
   const m = parseInt(settings.notificationMinutesBefore, 10);
   settings.notificationMinutesBefore = Number.isFinite(m) && m >= 0 ? m : 5;
+  // autoStart is tri-state: null (never asked) | true | false. Anything else → null.
+  settings.autoStart = (settings.autoStart === true || settings.autoStart === false)
+    ? settings.autoStart
+    : null;
+}
+
+// ----- Windows auto-start (login item) -----
+// On first run (settings.autoStart === null) shows a modal asking the user.
+// On subsequent runs reconciles the stored value with the actual OS state in
+// case the user disabled it via Windows Settings / Task Manager.
+async function initAutoStart() {
+  if (!window.autoStartAPI) return;
+  if (settings.autoStart === null) {
+    const enabled = await showAutoStartPrompt();
+    settings.autoStart = enabled;
+    try { await window.autoStartAPI.set(enabled); } catch (err) { console.error(err); }
+    await persistSettings();
+  } else {
+    try {
+      const osState = await window.autoStartAPI.get();
+      if (osState !== settings.autoStart) {
+        settings.autoStart = osState;
+        await persistSettings();
+      }
+    } catch (err) { console.error(err); }
+  }
+}
+
+function showAutoStartPrompt() {
+  return new Promise(resolve => {
+    const modal = els.modalAutoStartConfirm;
+    const yes = els.autoStartConfirmYes;
+    const no = els.autoStartConfirmNo;
+    if (!modal || !yes || !no) { resolve(false); return; }
+    const cleanup = () => {
+      modal.classList.add('hidden');
+      yes.removeEventListener('click', onYes);
+      no.removeEventListener('click', onNo);
+    };
+    const onYes = () => { cleanup(); resolve(true); };
+    const onNo = () => { cleanup(); resolve(false); };
+    yes.addEventListener('click', onYes);
+    no.addEventListener('click', onNo);
+    modal.classList.remove('hidden');
+  });
 }
 
 async function persistSettings() {
@@ -2011,6 +2062,7 @@ function openSettingsModal() {
   els.settingsCompleteBehavior.value = settings.completeBehavior;
   els.settingsNotifyEnabled.checked = !!settings.notificationEnabled;
   els.settingsNotifyMinutes.value = String(settings.notificationMinutesBefore);
+  if (els.settingsAutoStart) els.settingsAutoStart.checked = settings.autoStart === true;
   els.modalSettings.classList.remove('hidden');
 }
 function closeSettingsModal() { els.modalSettings.classList.add('hidden'); }
@@ -2022,11 +2074,20 @@ async function submitSettingsForm(e) {
   const notifyEnabled = els.settingsNotifyEnabled.checked;
   const minutesRaw = parseInt(els.settingsNotifyMinutes.value, 10);
   const minutes = Number.isFinite(minutesRaw) && minutesRaw >= 0 ? minutesRaw : 0;
+  const autoStart = els.settingsAutoStart ? els.settingsAutoStart.checked : (settings.autoStart === true);
 
   settings.zoomLevel = [1, 2, 3].includes(zoom) ? zoom : 1;
   settings.completeBehavior = ['ask', 'auto', 'manual'].includes(behavior) ? behavior : 'ask';
   settings.notificationEnabled = notifyEnabled;
   settings.notificationMinutesBefore = minutes;
+
+  // Push the auto-start change to the OS only if it actually changed
+  if (autoStart !== (settings.autoStart === true)) {
+    settings.autoStart = autoStart;
+    if (window.autoStartAPI) {
+      try { await window.autoStartAPI.set(autoStart); } catch (err) { console.error(err); }
+    }
+  }
 
   applyZoomImmediate(settings.zoomLevel);
   await persistSettings();
@@ -3214,6 +3275,10 @@ async function init() {
 
   // Start notification scheduler
   startNotificationScheduler();
+
+  // First-run auto-start prompt (or OS sync on later runs). Awaited so the
+  // onboarding tour timer below doesn't fire while this modal is still open.
+  await initAutoStart();
 
   // First-run onboarding tour
   try {

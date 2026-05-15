@@ -28,7 +28,9 @@ const DEFAULT_SETTINGS = {
   zoomLevel: 1,
   completeBehavior: 'ask',
   notificationEnabled: true,
-  notificationMinutesBefore: 5
+  notificationMinutesBefore: 5,
+  // null = never asked (triggers first-run prompt). true/false once the user has decided.
+  autoStart: null
 };
 
 // Resolve data file path
@@ -341,6 +343,32 @@ ipcMain.handle('settings:save', async (_event, settings) => {
 });
 
 // IPC: native notification
+// ----- Windows login-item / auto-start at OS startup -----
+// In dev mode we don't actually touch the registry — `process.execPath` points
+// to the local electron.exe and would create a stale Run entry.
+function readAutoStartOS() {
+  if (isDev) return false;
+  try {
+    return app.getLoginItemSettings().openAtLogin === true;
+  } catch (err) {
+    console.error('getLoginItemSettings failed:', err);
+    return false;
+  }
+}
+function writeAutoStartOS(enabled) {
+  if (isDev) return;
+  try {
+    app.setLoginItemSettings({ openAtLogin: !!enabled });
+  } catch (err) {
+    console.error('setLoginItemSettings failed:', err);
+  }
+}
+ipcMain.handle('autoStart:get', async () => readAutoStartOS());
+ipcMain.handle('autoStart:set', async (_event, enabled) => {
+  writeAutoStartOS(enabled);
+  return { ok: true, state: readAutoStartOS() };
+});
+
 ipcMain.handle('notify:show', async (_event, payload) => {
   try {
     if (!Notification.isSupported()) return { ok: false, error: 'unsupported' };

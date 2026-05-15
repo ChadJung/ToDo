@@ -14,6 +14,11 @@ contextBridge.exposeInMainWorld('notifyAPI', {
   show: (title, body) => ipcRenderer.invoke('notify:show', { title, body })
 });
 
+contextBridge.exposeInMainWorld('autoStartAPI', {
+  get: () => ipcRenderer.invoke('autoStart:get'),
+  set: (enabled) => ipcRenderer.invoke('autoStart:set', enabled)
+});
+
 contextBridge.exposeInMainWorld('windowAPI', {
   minimize: () => ipcRenderer.send('window:minimize'),
   toggleMaximize: () => ipcRenderer.send('window:toggleMaximize'),

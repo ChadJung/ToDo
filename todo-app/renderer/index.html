@@ -260,6 +260,21 @@
   </div>
 
   <!-- Complete Confirm Modal (with don't-ask-again) -->
+  <!-- First-run prompt: Windows login auto-start -->
+  <div id="modal-autostart-confirm" class="modal hidden">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content modal-narrow">
+      <h3>Windows 자동 시작</h3>
+      <p>Windows 시작 시 TodoApp을 자동으로 실행할까요?</p>
+      <p style="color:#888;font-size:12px;margin-top:-6px;">설정 메뉴에서 언제든지 변경할 수 있습니다.</p>
+      <div class="modal-actions">
+        <span style="flex:1"></span>
+        <button type="button" class="btn" id="autostart-confirm-no">아니요</button>
+        <button type="button" class="btn btn-primary" id="autostart-confirm-yes">네, 자동 실행</button>
+      </div>
+    </div>
+  </div>
+
   <div id="modal-complete-confirm" class="modal hidden">
     <div class="modal-backdrop"></div>
     <div class="modal-content modal-narrow">
@@ -313,6 +328,14 @@
           </label>
           <label>알림 시점 (몇 분 전)
             <input type="number" id="settings-notify-minutes" min="0" max="1440" step="1" />
+          </label>
+        </fieldset>
+
+        <fieldset class="settings-section">
+          <legend>시스템</legend>
+          <label class="checkbox-row">
+            <input type="checkbox" id="settings-autostart" />
+            <span>Windows 시작 시 자동 실행</span>
           </label>
         </fieldset>
 

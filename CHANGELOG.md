@@ -6,6 +6,14 @@
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-05-15
+
+### Added
+- Windows 시작 시 자동 실행 기능
+  - 최초 실행 시 모달로 한 번 묻고 사용자 선택을 저장 (`settings.autoStart`)
+  - 설정 메뉴 "시스템" 섹션에 상시 토글 추가
+  - 이후 실행 때마다 OS의 로그인 아이템 상태와 동기화 (작업관리자 등에서 외부로 OFF되면 설정에도 반영)
+
 ## [1.3.0] - 2026-05-15
 
 ### Added
@@ -72,7 +80,8 @@
 - Task 상태(대기/진행/완료), 우선순위, 시작/마감/종료 일정 관리
 - 네이티브 알림, 창 상태 유지, 확대/축소
 
-[Unreleased]: https://github.com/ChadJung/ToDo/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/ChadJung/ToDo/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/ChadJung/ToDo/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/ChadJung/ToDo/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/ChadJung/ToDo/compare/v1.1.1...v1.2.0
 [1.1.1]: https://github.com/ChadJung/ToDo/compare/v1.1.0...v1.1.1
