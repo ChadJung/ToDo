@@ -182,7 +182,23 @@ input, select, textarea, button { font-family: inherit; }
   overflow-x: auto;
   overflow-y: hidden;
   align-items: flex-start;
+  position: relative;   /* anchor for .board-drop-indicator */
 }
+/* Vertical line shown between columns during JOB drag to indicate insertion point */
+.board-drop-indicator {
+  position: absolute;
+  top: 12px;
+  bottom: 12px;
+  width: 3px;
+  background: #4f8cff;
+  border-radius: 2px;
+  box-shadow: 0 0 8px rgba(79, 140, 255, 0.7);
+  pointer-events: none;
+  z-index: 10;
+  display: none;
+  transition: left 0.08s ease;
+}
+.board-drop-indicator.visible { display: block; }
 .board-empty {
   flex: 1;
   display: flex;
@@ -226,10 +242,7 @@ input, select, textarea, button { font-family: inherit; }
 .column.dragging {
   opacity: 0.4;
 }
-.column.drag-over {
-  outline: 2px dashed #4f8cff;
-  outline-offset: -2px;
-}
+/* (.column.drag-over outline replaced by .board-drop-indicator line) */
 .column-header-top {
   display: flex;
   align-items: center;

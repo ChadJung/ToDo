@@ -6,6 +6,20 @@
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-05-15
+
+### Fixed
+- 캘린더: `endDate`만 있는 Task(완료 타임스탬프)가 잘못 표시되던 버그 — `taskSpan`이 `startDate`/`dueDate` 없으면 null 반환
+- 캘린더 드래그/리사이즈 핸들러의 `mousemove`/`mouseup` document 리스너가 throw 경로에서 해제되지 않던 메모리 누수 (`try/finally` 적용, 월·주 모두)
+- 보드 카드 상태/우선순위 변경 시 디스크 저장 실패가 조용히 사라지던 문제 — `fireAndForget` 헬퍼로 `showAlert` 노출
+- 잘못된 `job.color` 값이 `style.background`에 그대로 흘러가던 CSS 인젝션 통로 — `sanitizeColor`로 `#RGB`/`#RRGGBB` 화이트리스트 검증
+- 9곳의 빈 `catch (_) {}` → `console.warn`으로 진단 가능하게 변경
+
+### Changed
+- 보드 카드 클릭 핸들러를 `els.board` 단일 위임 리스너로 통합 (status/priority/delete/edit-job/delete-job/card-click). 렌더당 ~수백 개 리스너 재등록 제거
+- JOB 컬럼 드래그 정렬: 컬럼 outline → **컬럼 사이 gap에 파란 세로선**으로 삽입 지점 명시
+- 보드 카드 정렬 변경 시 **FLIP 애니메이션** 적용 — 상태/우선순위 변경 등으로 재정렬되는 카드와 영향받아 이동하는 카드 모두 280ms ease-out으로 부드럽게 이동
+
 ## [1.4.0] - 2026-05-15
 
 ### Added
@@ -80,7 +94,8 @@
 - Task 상태(대기/진행/완료), 우선순위, 시작/마감/종료 일정 관리
 - 네이티브 알림, 창 상태 유지, 확대/축소
 
-[Unreleased]: https://github.com/ChadJung/ToDo/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/ChadJung/ToDo/compare/v1.4.1...HEAD
+[1.4.1]: https://github.com/ChadJung/ToDo/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/ChadJung/ToDo/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/ChadJung/ToDo/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/ChadJung/ToDo/compare/v1.1.1...v1.2.0

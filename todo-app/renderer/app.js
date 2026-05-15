@@ -37,7 +37,7 @@ function saveUiState() {
       sortAsc: state.sortAsc
     };
     localStorage.setItem(UI_STATE_KEY, JSON.stringify(data));
-  } catch (_) {}
+  } catch (err) { console.warn('saveUiState skipped:', err); }
 }
 
 function loadUiState() {
@@ -52,7 +52,7 @@ function loadUiState() {
     if (typeof data.filterPriority === 'string') state.filterPriority = data.filterPriority;
     if (typeof data.sortBy === 'string') state.sortBy = data.sortBy;
     if (typeof data.sortAsc === 'boolean') state.sortAsc = data.sortAsc;
-  } catch (_) {}
+  } catch (err) { console.warn('loadUiState skipped:', err); }
 }
 
 function applyUiStateToControls() {
@@ -338,14 +338,24 @@ const els = {
 };
 
 // ----- Persistence -----
+// Accept only #RRGGBB / #RGB hex colors. Anything else (including
+// arbitrary CSS like "red; background-image: url(...)") is rejected so it
+// cannot escape into style.background or --job-color CSS custom property.
+function sanitizeColor(c) {
+  if (typeof c !== 'string') return '';
+  return /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(c) ? c : '';
+}
+
 async function loadData() {
   const data = await window.todoAPI.loadData();
   state.data = data || { jobs: [] };
   if (!Array.isArray(state.data.jobs)) state.data.jobs = [];
-  // Migrate any legacy HH:MM:SS time strings to HH:MM
   for (const job of state.data.jobs) {
+    // Reject malformed colors loaded from disk (e.g. hand-edited todos.json)
+    job.color = sanitizeColor(job.color);
     if (!Array.isArray(job.tasks)) continue;
     for (const t of job.tasks) {
+      // Migrate any legacy HH:MM:SS time strings to HH:MM
       if (t.startTime) t.startTime = normTime(t.startTime);
       if (t.endTime) t.endTime = normTime(t.endTime);
     }
@@ -534,7 +544,7 @@ function applyFiltersSort(tasks) {
 function setViewMode(mode) {
   if (mode !== 'board' && mode !== 'list' && mode !== 'calendar') mode = 'board';
   state.viewMode = mode;
-  try { localStorage.setItem(VIEW_MODE_KEY, mode); } catch (_) {}
+  try { localStorage.setItem(VIEW_MODE_KEY, mode); } catch (err) { console.warn('viewMode persist skipped:', err); }
   els.viewBoardBtn.classList.toggle('active', mode === 'board');
   els.viewListBtn.classList.toggle('active', mode === 'list');
   if (els.viewCalendarBtn) els.viewCalendarBtn.classList.toggle('active', mode === 'calendar');
@@ -556,7 +566,7 @@ function loadViewMode() {
   try {
     const saved = localStorage.getItem(VIEW_MODE_KEY);
     if (saved === 'board' || saved === 'list' || saved === 'calendar') return saved;
-  } catch (_) {}
+  } catch (err) { console.warn('loadViewMode skipped:', err); }
   return 'board';
 }
 
@@ -564,14 +574,14 @@ function loadCalendarMode() {
   try {
     const saved = localStorage.getItem(CAL_MODE_KEY);
     if (saved === 'month' || saved === 'week') return saved;
-  } catch (_) {}
+  } catch (err) { console.warn('loadCalendarMode skipped:', err); }
   return 'month';
 }
 
 function setCalendarMode(mode) {
   if (mode !== 'month' && mode !== 'week') mode = 'month';
   state.calendarMode = mode;
-  try { localStorage.setItem(CAL_MODE_KEY, mode); } catch (_) {}
+  try { localStorage.setItem(CAL_MODE_KEY, mode); } catch (err) { console.warn('calMode persist skipped:', err); }
   if (els.calModeMonth) els.calModeMonth.classList.toggle('active', mode === 'month');
   if (els.calModeWeek) els.calModeWeek.classList.toggle('active', mode === 'week');
   renderCalendar();
@@ -726,15 +736,16 @@ function renderCalendar() {
 }
 
 // Returns the inclusive [startYmd, endYmd] span of a task for calendar drawing.
-// Priority: explicit start/end range; else dueDate (single day); else startDate (single day).
+// Calendar shows *planned* dates (startDate / dueDate). A bare endDate is a
+// completion timestamp and must NOT pull the task into the calendar on its own.
 function taskSpan(task) {
   const sd = parseYMD(task.startDate);
-  const ed = parseYMD(task.endDate);
   const due = parseYMD(task.dueDate);
-  let start = sd || due || ed;
-  let end = ed || due || sd;
+  const ed = parseYMD(task.endDate);
+  if (!sd && !due) return null;            // endDate-only tasks don't render
+  const start = sd || due;
+  const end = ed || due || sd;
   if (!start || !end) return null;
-  // Ensure start <= end
   const ds = dateFromYmd(start);
   const de = dateFromYmd(end);
   if (de < ds) return { start: end, end: start };
@@ -1062,57 +1073,60 @@ function attachMonthBarDrag(bar, sp, weekStart) {
   }
 
   async function onUp(e) {
-    document.removeEventListener('mousemove', onMove);
-    document.removeEventListener('mouseup', onUp);
-
-    if (mode === 'move') {
-      siblings.forEach(s => {
-        s.classList.remove('dragging');
-        s.style.transform = '';
-      });
-      if (!didDrag) {
-        openTaskModal(sp.jobNo, sp.task.id);
+    // try/finally guarantees document listeners detach even if saveData / render throws.
+    try {
+      if (mode === 'move') {
+        siblings.forEach(s => {
+          s.classList.remove('dragging');
+          s.style.transform = '';
+        });
+        if (!didDrag) {
+          openTaskModal(sp.jobNo, sp.task.id);
+          mode = null;
+          return;
+        }
+        const dx = e.clientX - startX;
+        const dy = e.clientY - startY;
+        const dCol = Math.round(dx / dayPx);
+        const dRow = Math.round(dy / weekPx);
+        const dDays = dRow * 7 + dCol;
+        if (dDays === 0) { renderCalendar(); mode = null; return; }
+        const task = findTask(sp.jobNo, sp.task.id);
+        if (!task) { mode = null; return; }
+        const newStart = addDaysYmd(sp.originalStart, dDays);
+        const newEnd = addDaysYmd(sp.originalEnd, dDays);
+        applyTaskDateChange(task, newStart, newEnd);
+        await saveData();
+        renderCalendar();
         mode = null;
         return;
       }
-      const dx = e.clientX - startX;
-      const dy = e.clientY - startY;
-      const dCol = Math.round(dx / dayPx);
-      const dRow = Math.round(dy / weekPx);
-      const dDays = dRow * 7 + dCol;
-      if (dDays === 0) { renderCalendar(); mode = null; return; }
-      const task = findTask(sp.jobNo, sp.task.id);
-      if (!task) { mode = null; return; }
-      const newStart = addDaysYmd(sp.originalStart, dDays);
-      const newEnd = addDaysYmd(sp.originalEnd, dDays);
-      applyTaskDateChange(task, newStart, newEnd);
+
+      // Resize modes — task has already been mutated live in onMove
+      const noChange = lastDCol === 0 && lastDRow === 0;
+      if (!didDrag || noChange) {
+        // Restore original fields and re-render clean
+        if (origTaskFields) {
+          const t = findTask(sp.jobNo, sp.task.id);
+          if (t) {
+            t.startDate = origTaskFields.startDate;
+            t.endDate = origTaskFields.endDate;
+            t.dueDate = origTaskFields.dueDate;
+          }
+        }
+        const wasClick = !didDrag;
+        renderCalendar();
+        if (wasClick) openTaskModal(sp.jobNo, sp.task.id);
+        mode = null;
+        return;
+      }
       await saveData();
       renderCalendar();
       mode = null;
-      return;
+    } finally {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
     }
-
-    // Resize modes — task has already been mutated live in onMove
-    const noChange = lastDCol === 0 && lastDRow === 0;
-    if (!didDrag || noChange) {
-      // Restore original fields and re-render clean
-      if (origTaskFields) {
-        const t = findTask(sp.jobNo, sp.task.id);
-        if (t) {
-          t.startDate = origTaskFields.startDate;
-          t.endDate = origTaskFields.endDate;
-          t.dueDate = origTaskFields.dueDate;
-        }
-      }
-      const wasClick = !didDrag;
-      renderCalendar();
-      if (wasClick) openTaskModal(sp.jobNo, sp.task.id);
-      mode = null;
-      return;
-    }
-    await saveData();
-    renderCalendar();
-    mode = null;
   }
 
   bar.addEventListener('mousedown', (e) => {
@@ -1368,75 +1382,78 @@ function attachWeekEventDrag(ev, jobNo, taskId, HOUR_PX) {
     }
   }
   async function onUp(e) {
-    document.removeEventListener('mousemove', onMove);
-    document.removeEventListener('mouseup', onUp);
-    ev.classList.remove('dragging');
-    ev.style.transform = '';
-    ev.style.marginBottom = '';
-    if (!didDrag) {
-      openTaskModal(jobNo, taskId);
-      mode = null;
-      return;
-    }
-    const dx = e.clientX - startX;
-    const dy = e.clientY - startY;
-    // Snap delta minutes (vertical) and column delta (horizontal)
-    const deltaMin = Math.round((dy / HOUR_PX) * 60 / SNAP_MIN) * SNAP_MIN;
-    const dCol = colPx > 0 ? Math.round(dx / colPx) : 0;
-    if (deltaMin === 0 && dCol === 0) {
-      // Resize preview may have nudged top/height; restore originals
-      ev.style.top = origTopPx + 'px';
-      ev.style.height = origHeightPx + 'px';
-      mode = null;
-      return;
-    }
+    try {
+      ev.classList.remove('dragging');
+      ev.style.transform = '';
+      ev.style.marginBottom = '';
+      if (!didDrag) {
+        openTaskModal(jobNo, taskId);
+        mode = null;
+        return;
+      }
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+      // Snap delta minutes (vertical) and column delta (horizontal)
+      const deltaMin = Math.round((dy / HOUR_PX) * 60 / SNAP_MIN) * SNAP_MIN;
+      const dCol = colPx > 0 ? Math.round(dx / colPx) : 0;
+      if (deltaMin === 0 && dCol === 0) {
+        // Resize preview may have nudged top/height; restore originals
+        ev.style.top = origTopPx + 'px';
+        ev.style.height = origHeightPx + 'px';
+        mode = null;
+        return;
+      }
 
-    const task = findTask(jobNo, taskId);
-    if (!task || !task.startTime) { mode = null; return; }
-    const [sh, sm] = task.startTime.split(':').map(Number);
-    let startMin = sh * 60 + sm;
-    let endMin;
-    if (task.endTime && task.endDate === task.startDate) {
-      const [eh, em] = task.endTime.split(':').map(Number);
-      endMin = eh * 60 + em;
-    } else {
-      endMin = startMin + 60;
-    }
-    if (mode === 'move') {
-      startMin += deltaMin;
-      endMin += deltaMin;
-    } else if (mode === 'resize-t') {
-      startMin += deltaMin;
-      if (startMin >= endMin) startMin = endMin - SNAP_MIN;
-    } else if (mode === 'resize-b') {
-      endMin += deltaMin;
-      if (endMin <= startMin) endMin = startMin + SNAP_MIN;
-    }
-    startMin = Math.max(0, Math.min(24 * 60 - SNAP_MIN, startMin));
-    endMin = Math.max(SNAP_MIN, Math.min(24 * 60, endMin));
-    task.startTime = pad2(Math.floor(startMin / 60)) + ':' + pad2(startMin % 60);
-    task.endTime = pad2(Math.floor(endMin / 60)) + ':' + pad2(endMin % 60);
-    // Horizontal date shift (move mode only)
-    if (mode === 'move' && dCol !== 0) {
-      const sd = parseYMD(task.startDate);
-      if (sd) {
-        const ns = addDaysYmd(sd, dCol);
-        task.startDate = ymdKey(ns.y, ns.m, ns.d);
-      }
-      const ed = parseYMD(task.endDate);
-      if (ed) {
-        const ne = addDaysYmd(ed, dCol);
-        task.endDate = ymdKey(ne.y, ne.m, ne.d);
+      const task = findTask(jobNo, taskId);
+      if (!task || !task.startTime) { mode = null; return; }
+      const [sh, sm] = task.startTime.split(':').map(Number);
+      let startMin = sh * 60 + sm;
+      let endMin;
+      if (task.endTime && task.endDate === task.startDate) {
+        const [eh, em] = task.endTime.split(':').map(Number);
+        endMin = eh * 60 + em;
       } else {
-        task.endDate = task.startDate;
+        endMin = startMin + 60;
       }
-    } else {
-      if (!task.endDate) task.endDate = task.startDate;
+      if (mode === 'move') {
+        startMin += deltaMin;
+        endMin += deltaMin;
+      } else if (mode === 'resize-t') {
+        startMin += deltaMin;
+        if (startMin >= endMin) startMin = endMin - SNAP_MIN;
+      } else if (mode === 'resize-b') {
+        endMin += deltaMin;
+        if (endMin <= startMin) endMin = startMin + SNAP_MIN;
+      }
+      startMin = Math.max(0, Math.min(24 * 60 - SNAP_MIN, startMin));
+      endMin = Math.max(SNAP_MIN, Math.min(24 * 60, endMin));
+      task.startTime = pad2(Math.floor(startMin / 60)) + ':' + pad2(startMin % 60);
+      task.endTime = pad2(Math.floor(endMin / 60)) + ':' + pad2(endMin % 60);
+      // Horizontal date shift (move mode only)
+      if (mode === 'move' && dCol !== 0) {
+        const sd = parseYMD(task.startDate);
+        if (sd) {
+          const ns = addDaysYmd(sd, dCol);
+          task.startDate = ymdKey(ns.y, ns.m, ns.d);
+        }
+        const ed = parseYMD(task.endDate);
+        if (ed) {
+          const ne = addDaysYmd(ed, dCol);
+          task.endDate = ymdKey(ne.y, ne.m, ne.d);
+        } else {
+          task.endDate = task.startDate;
+        }
+      } else {
+        if (!task.endDate) task.endDate = task.startDate;
+      }
+      task.updatedAt = nowIso();
+      await saveData();
+      renderCalendar();
+      mode = null;
+    } finally {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
     }
-    task.updatedAt = nowIso();
-    await saveData();
-    renderCalendar();
-    mode = null;
   }
 
   ev.addEventListener('mousedown', (e) => {
@@ -1538,6 +1555,11 @@ function renderListRow(jobNo, task) {
 // ----- Render: Board -----
 function renderBoard() {
   const board = els.board;
+  // Install the single delegated click listener once (idempotent)
+  setupBoardDelegation();
+  // FLIP First: capture each card's pre-rebuild rect so we can animate any
+  // card whose position moved (sort/reorder/status change).
+  const prevCardRects = captureCardPositions(board);
   // Clear board but keep empty placeholder reference
   board.innerHTML = '';
 
@@ -1560,6 +1582,8 @@ function renderBoard() {
   }
 
   els.boardCount.textContent = `${state.data.jobs.length} JOBs · ${totalTasks} Tasks`;
+  // FLIP Last/Invert/Play: animate each card from its previous rect to new position
+  playCardFlipAnimation(board, prevCardRects);
 }
 
 function renderColumn(job, visibleTasks, totalCount) {
@@ -1585,14 +1609,7 @@ function renderColumn(job, visibleTasks, totalCount) {
     </div>
     <div class="column-title">${escapeHtml(job.title)}</div>
   `;
-  header.querySelector('[data-action="edit-job"]').addEventListener('click', (e) => {
-    e.stopPropagation();
-    openJobModal(job.jobNo);
-  });
-  header.querySelector('[data-action="delete-job"]').addEventListener('click', (e) => {
-    e.stopPropagation();
-    deleteJob(job.jobNo);
-  });
+  // edit-job / delete-job click handlers live in setupBoardDelegation()
   col.appendChild(header);
 
   // Body
@@ -1637,26 +1654,88 @@ function renderColumn(job, visibleTasks, totalCount) {
   col.addEventListener('dragend', () => {
     col.classList.remove('dragging');
     clearDraggable();
-    els.board.querySelectorAll('.column.drag-over')
-      .forEach(c => c.classList.remove('drag-over'));
+    hideDropIndicator();
   });
   col.addEventListener('dragover', (e) => {
     if (col.classList.contains('dragging')) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
-    col.classList.add('drag-over');
+    const rect = col.getBoundingClientRect();
+    const after = e.clientX > rect.left + rect.width / 2;
+    showDropIndicator(col, after);
   });
-  col.addEventListener('dragleave', () => col.classList.remove('drag-over'));
   col.addEventListener('drop', (e) => {
     e.preventDefault();
-    col.classList.remove('drag-over');
+    hideDropIndicator();
     const fromJobNo = e.dataTransfer.getData('text/plain');
     const rect = col.getBoundingClientRect();
     const after = e.clientX > rect.left + rect.width / 2;
-    reorderJobs(fromJobNo, job.jobNo, after);
+    fireAndForget(reorderJobs(fromJobNo, job.jobNo, after), 'JOB 순서 변경 실패');
   });
 
   return col;
+}
+
+// ----- JOB drag drop indicator (vertical line between columns) -----
+function getDropIndicator() {
+  if (!els.board) return null;
+  let el = els.board.querySelector('.board-drop-indicator');
+  if (!el) {
+    el = document.createElement('div');
+    el.className = 'board-drop-indicator';
+    els.board.appendChild(el);
+  }
+  return el;
+}
+function showDropIndicator(col, after) {
+  const ind = getDropIndicator();
+  if (!ind) return;
+  const boardRect = els.board.getBoundingClientRect();
+  const colRect = col.getBoundingClientRect();
+  // Half of board's column gap (14px) — center the line within the gap
+  const halfGap = 7;
+  const edge = after ? colRect.right : colRect.left;
+  const x = edge - boardRect.left + els.board.scrollLeft + (after ? halfGap - 1.5 : -halfGap - 1.5);
+  ind.style.left = x + 'px';
+  ind.classList.add('visible');
+}
+function hideDropIndicator() {
+  if (!els.board) return;
+  const ind = els.board.querySelector('.board-drop-indicator');
+  if (ind) ind.classList.remove('visible');
+}
+
+// ----- FLIP animation for sort/reorder transitions -----
+// Captures DOM rects of all cards keyed by task id BEFORE rebuild,
+// then animates each surviving card from its old to new position.
+function captureCardPositions(board) {
+  const map = new Map();
+  if (!board) return map;
+  board.querySelectorAll('.card').forEach(card => {
+    if (card.dataset.id) map.set(card.dataset.id, card.getBoundingClientRect());
+  });
+  return map;
+}
+function playCardFlipAnimation(board, prevRects) {
+  if (!board || !prevRects || !prevRects.size) return;
+  board.querySelectorAll('.card').forEach(card => {
+    const id = card.dataset.id;
+    if (!id) return;
+    const prev = prevRects.get(id);
+    if (!prev) return;
+    const curr = card.getBoundingClientRect();
+    const dx = prev.left - curr.left;
+    const dy = prev.top - curr.top;
+    if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return;
+    // Web Animations API runs alongside CSS — auto-cleans up so :hover transforms work afterwards.
+    card.animate(
+      [
+        { transform: `translate(${dx}px, ${dy}px)` },
+        { transform: 'translate(0, 0)' }
+      ],
+      { duration: 280, easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)' }
+    );
+  });
 }
 
 // Move a JOB column before/after another and persist the new order.
@@ -1705,44 +1784,79 @@ function renderCard(jobNo, task) {
       `).join('')}
     </div>
   `;
-
-  // Click card -> open edit modal (except status control)
-  card.addEventListener('click', (e) => {
-    const target = e.target;
-    if (target instanceof HTMLElement && target.closest('[data-no-edit]')) return;
-    openTaskModal(jobNo, task.id);
-  });
-
-  // Status buttons
-  card.querySelectorAll('.status-control button').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const newStatus = btn.getAttribute('data-status');
-      changeTaskStatus(jobNo, task.id, newStatus);
-    });
-  });
-
-  // Priority badge → open picker
-  const prBtn = card.querySelector('.priority-btn');
-  if (prBtn) {
-    prBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      PriorityPicker.open(prBtn, task.priority, (next) => {
-        changeTaskPriority(jobNo, task.id, next);
-      });
-    });
-  }
-
-  // Delete button (top-right corner)
-  const delBtn = card.querySelector('.card-delete');
-  if (delBtn) {
-    delBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      deleteTask(jobNo, task.id);
-    });
-  }
-
+  // Per-card listeners removed — see setupBoardDelegation() for the single
+  // delegated click handler on els.board that dispatches all card actions.
   return card;
+}
+
+// One-time delegated click handler for the board view. Replaces ~4 listeners
+// per card (status × N, priority, delete, card-click) that were re-attached
+// on every renderAll. Idempotent — guard with a flag so multiple init calls
+// don't accumulate listeners.
+let boardDelegationInstalled = false;
+function setupBoardDelegation() {
+  if (boardDelegationInstalled || !els.board) return;
+  boardDelegationInstalled = true;
+  els.board.addEventListener('click', (e) => {
+    const target = e.target;
+    if (!(target instanceof HTMLElement)) return;
+
+    // Column header actions
+    const editJobBtn = target.closest('[data-action="edit-job"]');
+    if (editJobBtn) {
+      e.stopPropagation();
+      const col = editJobBtn.closest('.column');
+      if (col && col.dataset.jobNo) openJobModal(col.dataset.jobNo);
+      return;
+    }
+    const delJobBtn = target.closest('[data-action="delete-job"]');
+    if (delJobBtn) {
+      e.stopPropagation();
+      const col = delJobBtn.closest('.column');
+      if (col && col.dataset.jobNo) deleteJob(col.dataset.jobNo);
+      return;
+    }
+
+    // Card-scoped actions: resolve jobNo + task id from the card element
+    const card = target.closest('.card');
+    if (!card) return;
+    const jobNo = card.dataset.jobNo;
+    const taskId = card.dataset.id;
+    if (!jobNo || !taskId) return;
+
+    // Status button
+    const statusBtn = target.closest('[data-status]');
+    if (statusBtn && card.contains(statusBtn)) {
+      e.stopPropagation();
+      const newStatus = statusBtn.getAttribute('data-status');
+      fireAndForget(changeTaskStatus(jobNo, taskId, newStatus), '상태 변경 저장 실패');
+      return;
+    }
+
+    // Priority badge
+    const prBtn = target.closest('[data-action="edit-priority"]');
+    if (prBtn && card.contains(prBtn)) {
+      e.stopPropagation();
+      const task = findTask(jobNo, taskId);
+      if (!task) return;
+      PriorityPicker.open(prBtn, task.priority, (next) => {
+        fireAndForget(changeTaskPriority(jobNo, taskId, next), '우선순위 저장 실패');
+      });
+      return;
+    }
+
+    // Delete button
+    const delBtn = target.closest('[data-action="delete"]');
+    if (delBtn && card.contains(delBtn)) {
+      e.stopPropagation();
+      deleteTask(jobNo, taskId);
+      return;
+    }
+
+    // Otherwise: card body click → open edit modal
+    if (target.closest('[data-no-edit]')) return;
+    openTaskModal(jobNo, taskId);
+  });
 }
 
 // ----- Job actions -----
@@ -1792,7 +1906,7 @@ async function submitJobForm(e) {
   e.preventDefault();
   const jobNo = els.jobNoInput.value.trim();
   const title = els.jobTitleInput.value.trim();
-  const color = els.jobColorInput.value || '';
+  const color = sanitizeColor(els.jobColorInput.value);
   if (!jobNo || !title) return;
   const editing = els.jobNoInput.readOnly;
   if (editing) {
@@ -2121,11 +2235,11 @@ function scanForDueNotifications() {
         const body = minsAhead > 0
           ? `시작까지 약 ${minsAhead}분 남았습니다 (${task.startDate} ${task.startTime})`
           : `작업 시작 시간입니다 (${task.startDate} ${task.startTime})`;
-        try {
-          if (window.notifyAPI && typeof window.notifyAPI.show === 'function') {
-            window.notifyAPI.show(title, body);
-          }
-        } catch (err) { console.error('notify error', err); }
+        if (window.notifyAPI && typeof window.notifyAPI.show === 'function') {
+          // Notifications are best-effort — never alert the user if delivery fails.
+          Promise.resolve(window.notifyAPI.show(title, body))
+            .catch(err => console.error('notify error', err));
+        }
       }
     }
   }
@@ -2465,11 +2579,11 @@ const Tour = (() => {
     resizeHandler = null;
     keyHandler = null;
     teardownDOM();
-    try { localStorage.setItem(TOUR_COMPLETED_KEY, '1'); } catch (_) {}
+    try { localStorage.setItem(TOUR_COMPLETED_KEY, '1'); } catch (err) { console.warn('tour completion persist skipped:', err); }
   }
 
   function restart() {
-    try { localStorage.removeItem(TOUR_COMPLETED_KEY); } catch (_) {}
+    try { localStorage.removeItem(TOUR_COMPLETED_KEY); } catch (err) { console.warn('tour reset skipped:', err); }
     if (active) end();
     start();
   }
@@ -3200,6 +3314,19 @@ function triggerAddTask() {
 
 // ----- Init -----
 // ----- Custom alert/confirm -----
+
+// Run an async operation invoked from a synchronous click handler. Surfaces
+// any rejection (disk write fail, AV lock, ENOSPC, IPC error) to the user
+// instead of silently swallowing it — otherwise the UI flips but the change
+// is lost on next launch.
+function fireAndForget(promise, errorPrefix) {
+  Promise.resolve(promise).catch(err => {
+    console.error(errorPrefix || 'Operation failed:', err);
+    const msg = (err && err.message) ? err.message : String(err);
+    showAlert((errorPrefix || '작업 실패') + ': ' + msg, '오류');
+  });
+}
+
 function showAlert(message, title) {
   const modal = document.getElementById('modal-alert');
   document.getElementById('alert-title').textContent = title || '알림';
@@ -3280,13 +3407,14 @@ async function init() {
   // onboarding tour timer below doesn't fire while this modal is still open.
   await initAutoStart();
 
-  // First-run onboarding tour
-  try {
-    if (localStorage.getItem(TOUR_COMPLETED_KEY) !== '1') {
-      // Defer to ensure layout is ready
-      setTimeout(() => Tour.start(), 250);
-    }
-  } catch (_) {}
+  // First-run onboarding tour. The catch only guards the localStorage read —
+  // don't let it swallow downstream errors from Tour.start().
+  let tourCompleted = '1';
+  try { tourCompleted = localStorage.getItem(TOUR_COMPLETED_KEY); }
+  catch (err) { console.warn('tour flag read skipped:', err); }
+  if (tourCompleted !== '1') {
+    setTimeout(() => Tour.start(), 250);
+  }
 }
 
 init();
