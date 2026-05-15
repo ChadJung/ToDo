@@ -65,6 +65,12 @@ let zoomToastTimer = null;
 let notifyIntervalId = null;
 const notifiedTaskIds = new Set();
 
+// Month calendar dynamic layout state (populated each renderCalendarMonth call,
+// re-applied on resize via ResizeObserver so visible lanes adapt to row height).
+let monthBarsState = [];
+let monthLaneH = 20;
+let monthResizeObserver = null;
+
 const STATUSES = ['대기', '진행', '완료'];
 const PRIORITIES = ['높음', '보통', '낮음'];
 // Preset JOB color palette (mid-tone, readable with white text on dark theme)
@@ -452,6 +458,11 @@ function applyFiltersSort(tasks) {
   }
   if (state.filterPriority) result = result.filter(t => t.priority === state.filterPriority);
   result.sort((a, b) => {
+    // Completed tasks always sink to the bottom, regardless of sort direction
+    const aDone = a.status === '완료' ? 1 : 0;
+    const bDone = b.status === '완료' ? 1 : 0;
+    if (aDone !== bDone) return aDone - bDone;
+
     let cmp = 0;
     if (state.sortBy === 'dueDate') {
       const aVal = a.dueDate || '';
@@ -544,6 +555,9 @@ function setZoomLevel(level) {
   settings.zoomLevel = clamped;
   persistSettings();
   showZoomToast(Math.round(ZOOM_FACTORS[zoomLevel] * 100));
+  // Calendar bar/event positions are JS-computed from LANE_H/HOUR_PX,
+  // which now depend on zoom — re-render so layout matches the new scale.
+  if (state.viewMode === 'calendar') renderCalendar();
 }
 
 function attachZoomHandler() {
@@ -686,6 +700,8 @@ function renderCalendarMonth() {
   const body = els.calendarBody;
   body.innerHTML = '';
   body.className = 'calendar-body cal-month';
+  // Reset dynamic layout state — each render rebuilds week rows from scratch.
+  monthBarsState = [];
 
   const f = state.calendarFocus;
   const firstOfMonth = new Date(f.y, f.m, 1);
@@ -818,40 +834,76 @@ function renderCalendarMonth() {
       }
     }
 
-    const LANE_H = 20;
-    const MAX_LANES = 3;
-    // Group overflow per day
-    const overflowByDay = [0, 0, 0, 0, 0, 0, 0];
-    for (const seg of segs) {
-      if (seg.lane < MAX_LANES) {
-        renderBar(bars, seg, weekStart, LANE_H);
-      } else {
-        for (let d = seg.startIdx; d <= seg.endIdx; d++) overflowByDay[d]++;
-      }
-    }
-    // "+ N 더보기" labels
-    overflowByDay.forEach((cnt, d) => {
-      if (cnt <= 0) return;
-      const more = document.createElement('button');
-      more.type = 'button';
-      more.className = 'cal-bar-more';
-      more.textContent = `+ ${cnt} 더보기`;
-      more.style.left = `calc(${(d / 7) * 100}% + 4px)`;
-      more.style.width = `calc(${(1 / 7) * 100}% - 8px)`;
-      more.style.top = (MAX_LANES * LANE_H) + 'px';
-      more.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const c = cells[w * 7 + d];
-        state.calendarFocus = { y: c.y, m: c.m, d: c.d };
-        setCalendarMode('week');
-      });
-      bars.appendChild(more);
+    // Bars are rendered later (after the grid is in the DOM) so we can measure
+    // each week row's actual height and adapt the visible lane count.
+    monthBarsState.push({
+      weekRow, bars, segs, weekStart,
+      cellsInWeek: cells.slice(w * 7, w * 7 + 7)
     });
 
     weekRow.appendChild(bars);
     grid.appendChild(weekRow);
   }
   body.appendChild(grid);
+
+  monthLaneH = Math.round(20 * (ZOOM_FACTORS[zoomLevel] || 1));
+  // Initial dynamic layout pass — runs after the browser has computed week row heights.
+  requestAnimationFrame(relayoutMonthBars);
+
+  // Re-run layout whenever the calendar wrap resizes so the "+더보기" count
+  // and visible lanes track the available row height in real time.
+  if (typeof ResizeObserver !== 'undefined') {
+    if (monthResizeObserver) monthResizeObserver.disconnect();
+    else monthResizeObserver = new ResizeObserver(() => relayoutMonthBars());
+    monthResizeObserver.observe(grid);
+  }
+}
+
+// Render bars + "+N 더보기" labels for every week row, sized to the row's height.
+function relayoutMonthBars() {
+  if (state.viewMode !== 'calendar' || state.calendarMode !== 'month') return;
+  for (const data of monthBarsState) relayoutMonthWeek(data);
+}
+
+function relayoutMonthWeek(data) {
+  const { weekRow, bars, segs, weekStart, cellsInWeek } = data;
+  bars.innerHTML = '';
+  // .cal-week-bars CSS positions itself below the date number and above the
+  // row bottom, so its own clientHeight is the usable area for bars.
+  const available = bars.clientHeight;
+  if (available <= 0) return; // not laid out yet
+  let maxLanes = Math.max(1, Math.floor(available / monthLaneH));
+  const highestLane = segs.reduce((m, s) => Math.max(m, s.lane), -1);
+  const overflowExists = highestLane >= maxLanes;
+  if (overflowExists) {
+    // Reserve one lane height for the "+N 더보기" row
+    maxLanes = Math.max(1, Math.floor((available - monthLaneH) / monthLaneH));
+  }
+  const overflowByDay = [0, 0, 0, 0, 0, 0, 0];
+  for (const seg of segs) {
+    if (seg.lane < maxLanes) {
+      renderBar(bars, seg, weekStart, monthLaneH);
+    } else {
+      for (let d = seg.startIdx; d <= seg.endIdx; d++) overflowByDay[d]++;
+    }
+  }
+  overflowByDay.forEach((cnt, d) => {
+    if (cnt <= 0) return;
+    const more = document.createElement('button');
+    more.type = 'button';
+    more.className = 'cal-bar-more';
+    more.textContent = `+ ${cnt} 더보기`;
+    more.style.left = `calc(${(d / 7) * 100}% + 4px)`;
+    more.style.width = `calc(${(1 / 7) * 100}% - 8px)`;
+    more.style.top = (maxLanes * monthLaneH) + 'px';
+    more.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const c = cellsInWeek[d];
+      state.calendarFocus = { y: c.y, m: c.m, d: c.d };
+      setCalendarMode('week');
+    });
+    bars.appendChild(more);
+  });
 }
 
 function renderBar(container, seg, weekStart, LANE_H) {
@@ -1125,7 +1177,7 @@ function renderCalendarWeek() {
   grid.appendChild(timeCol);
 
   // Day columns
-  const HOUR_PX = 44;
+  const HOUR_PX = Math.round(44 * (ZOOM_FACTORS[zoomLevel] || 1));
   const colEls = [];
   for (let i = 0; i < 7; i++) {
     const col = document.createElement('div');
@@ -1517,7 +1569,58 @@ function renderColumn(job, visibleTasks, totalCount) {
   footer.appendChild(addBtn);
   col.appendChild(footer);
 
+  // ----- JOB column drag & drop reorder -----
+  // Drag is initiated only from the header (not its buttons) to avoid
+  // interfering with card interactions inside the column body.
+  header.addEventListener('mousedown', (e) => {
+    if (e.target.closest('button')) return;
+    col.draggable = true;
+  });
+  const clearDraggable = () => { col.draggable = false; };
+  header.addEventListener('mouseup', clearDraggable);
+  col.addEventListener('dragstart', (e) => {
+    e.dataTransfer.setData('text/plain', job.jobNo);
+    e.dataTransfer.effectAllowed = 'move';
+    col.classList.add('dragging');
+  });
+  col.addEventListener('dragend', () => {
+    col.classList.remove('dragging');
+    clearDraggable();
+    els.board.querySelectorAll('.column.drag-over')
+      .forEach(c => c.classList.remove('drag-over'));
+  });
+  col.addEventListener('dragover', (e) => {
+    if (col.classList.contains('dragging')) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    col.classList.add('drag-over');
+  });
+  col.addEventListener('dragleave', () => col.classList.remove('drag-over'));
+  col.addEventListener('drop', (e) => {
+    e.preventDefault();
+    col.classList.remove('drag-over');
+    const fromJobNo = e.dataTransfer.getData('text/plain');
+    const rect = col.getBoundingClientRect();
+    const after = e.clientX > rect.left + rect.width / 2;
+    reorderJobs(fromJobNo, job.jobNo, after);
+  });
+
   return col;
+}
+
+// Move a JOB column before/after another and persist the new order.
+async function reorderJobs(fromJobNo, toJobNo, insertAfter) {
+  if (!fromJobNo || fromJobNo === toJobNo) return;
+  const jobs = state.data.jobs;
+  const fromIdx = jobs.findIndex(j => j.jobNo === fromJobNo);
+  if (fromIdx < 0) return;
+  const [moved] = jobs.splice(fromIdx, 1);
+  let toIdx = jobs.findIndex(j => j.jobNo === toJobNo);
+  if (toIdx < 0) { jobs.splice(fromIdx, 0, moved); return; }
+  if (insertAfter) toIdx++;
+  jobs.splice(toIdx, 0, moved);
+  await saveData();
+  renderBoard();
 }
 
 function renderCard(jobNo, task) {
@@ -1750,6 +1853,11 @@ async function submitTaskForm(e) {
 
   // If status was changed to 완료 in the modal and end date/time is empty, apply behavior
   const prevTask = !isNew ? findTask(originalJobNo, id) : null;
+  // Reverting out of 완료 clears the completion time so re-completing asks again
+  if (prevTask && prevTask.status === '완료' && newStatus !== '완료') {
+    endDate = '';
+    endTime = '';
+  }
   const becomingComplete = newStatus === '완료' && (!prevTask || prevTask.status !== '완료');
   if (becomingComplete && !endDate && !endTime) {
     const decision = await resolveCompleteEndTime();
@@ -1843,6 +1951,12 @@ async function changeTaskStatus(jobNo, taskId, newStatus) {
   const wasComplete = task.status === '완료';
   task.status = newStatus;
   task.updatedAt = nowIso();
+
+  // Reverting out of 완료 clears the completion time so re-completing asks again
+  if (wasComplete && newStatus !== '완료') {
+    task.endDate = '';
+    task.endTime = '';
+  }
 
   if (newStatus === '완료' && !wasComplete && !task.endDate && !task.endTime) {
     const decision = await resolveCompleteEndTime();

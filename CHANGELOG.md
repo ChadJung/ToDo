@@ -6,6 +6,24 @@
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-05-15
+
+### Added
+- 보드 컬럼 드래그&드롭 정렬 - JOB 컬럼 헤더를 잡고 드래그하여 순서 변경 (저장됨)
+- 월 캘린더 동적 lane 수 - 주 row 높이에 맞춰 표시 가능한 일정 수와 "+N 더보기" 라벨이 실시간으로 재계산 (창 resize/zoom 시 자동 갱신)
+
+### Changed
+- 보드·목록: 완료된 Task는 정렬 방향과 관계없이 항상 맨 아래로 정렬
+- 캘린더: 진행중(`진행`) 일정은 굵은 글씨로 표시하여 대기와 시각적으로 구분
+- 캘린더 줌 반영 - 월/주 일정 바 글씨·높이, 날짜 숫자, 셀 padding, JS의 LANE_H/HOUR_PX가 모두 `--zoom` 배율로 스케일되고 zoom 변경 시 캘린더가 즉시 재렌더링
+- 캘린더 일정 바 시작 모서리 노치 제거 - `border-left` 대신 `box-shadow: inset 3px 0 0`을 사용해 `border-radius`를 따라 부드럽게 둥글어짐 (월/주/종일 모두)
+- 확대 배율 toast 위치를 우상단 → 창 가로 중앙(헤더 아래)으로 이동
+- 최소 창 크기 `minWidth: 1360 / minHeight: 720` - 보드 JOB 4개 + 월 캘린더 최대 줌 기준
+
+### Fixed
+- 완료 → 진행 되돌리기 후 다시 완료 시 종료시간 팝업이 뜨지 않던 문제 - 완료 상태에서 빠질 때 `endDate`/`endTime` 자동 초기화 (보드 카드 + Task 모달 모두)
+- 보드 카드 hover 시 `translateY(-2px)`로 생긴 2px 빈 영역에 커서가 놓이면 hover가 ON/OFF로 깜빡이던 문제 - `::after`로 hit-test 영역을 메워 안정화
+
 ## [1.2.0] - 2026-05-14
 
 ### Added
@@ -54,7 +72,8 @@
 - Task 상태(대기/진행/완료), 우선순위, 시작/마감/종료 일정 관리
 - 네이티브 알림, 창 상태 유지, 확대/축소
 
-[Unreleased]: https://github.com/ChadJung/ToDo/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/ChadJung/ToDo/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/ChadJung/ToDo/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/ChadJung/ToDo/compare/v1.1.1...v1.2.0
 [1.1.1]: https://github.com/ChadJung/ToDo/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/ChadJung/ToDo/compare/v1.0.0...v1.1.0

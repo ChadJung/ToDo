@@ -165,8 +165,12 @@ function createWindow(splash, splashShownAt) {
   const winOptions = {
     width: savedState.width || 1200,
     height: savedState.height || 800,
-    minWidth: 900,
-    minHeight: 600,
+    // 4 JOB columns (4 × 320) + 3 gaps (3 × 14) + .board padding (2 × 16) = 1354px
+    // — minimum window width keeps the top toolbar from wrapping on the board view.
+    minWidth: 1360,
+    // Month calendar at max zoom (1.3): topbar (~70) + cal nav (~50) + weekday header (~30)
+    // + 6 week rows of ≥85px each (24*1.3 chrome + 1 bar lane + "+더보기" lane) ≈ 660 + margin.
+    minHeight: 720,
     backgroundColor: '#1e1e1e',
     title: 'TodoApp',
     icon: path.join(__dirname, 'build', 'icon.ico'),
