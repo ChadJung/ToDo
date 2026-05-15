@@ -27,3 +27,7 @@ Thumbs.db
 # Backups & temp
 *.bak
 *.tmp
+
+# Memory dumps from crashes (kept locally for debugging, never committed)
+*.DMP
+*.dmp
