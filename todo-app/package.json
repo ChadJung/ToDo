@@ -9,7 +9,9 @@
     "prebuild": "npm run clean",
     "build": "electron-builder --win nsis",
     "prebuild:portable": "npm run clean",
-    "build:portable": "electron-builder --win portable"
+    "build:portable": "electron-builder --win portable",
+    "prerelease:build": "npm run clean",
+    "release:build": "electron-builder --win nsis portable"
   },
   "author": "sjjung",
   "license": "MIT",

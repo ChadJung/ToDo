@@ -47,6 +47,18 @@ npm run build:portable  # portable exe
 
 산출물은 `todo-app/dist/`에 생성됩니다. 빌드 시 `prebuild` 훅이 이전 `dist/`를 자동으로 비웁니다(`npm run clean`). electron-builder 캐시까지 정리하려면 `clean.bat`을 실행하세요.
 
+### 자동 릴리스 (CI)
+
+`v*` 태그를 푸시하면 `.github/workflows/release.yml`이 Windows 러너에서 NSIS + Portable을 빌드하고 `CHANGELOG.md`의 해당 버전 섹션을 release notes로 추출해 GitHub Release를 자동 생성·업로드합니다.
+
+```bash
+# CHANGELOG.md 에 "## [1.5.0] - YYYY-MM-DD" 섹션 추가 후
+npm --prefix todo-app version 1.5.0 --no-git-tag-version
+git add -A && git commit -m "release: v1.5.0"
+git tag v1.5.0
+git push --follow-tags
+```
+
 ## 단축키
 
 | 단축키 | 동작 |
