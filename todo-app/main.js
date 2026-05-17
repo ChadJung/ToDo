@@ -4,11 +4,119 @@ const fs = require('fs');
 
 const isDev = !app.isPackaged;
 
-// Some environments (VMs, RDP sessions, older/unusual GPU drivers) fail to
-// composite GPU-accelerated windows, leaving the process alive but no visible
-// window. Disabling hardware acceleration trades negligible perf for reliable
-// rendering across machines.
-app.disableHardwareAcceleration();
+// ----- Persistent app log -----
+// Writes to %APPDATA%/TodoApp/app.log so we can diagnose user reports
+// ("doesn't open on my PC"). Disk usage is bounded by tail-trim rotation;
+// verbose (INFO) entries are only emitted in debug mode to keep the file
+// tiny on normal user machines.
+//
+// Debug mode opt-in (any of):
+//   • CLI flag:  --debug
+//   • env var:   TODOAPP_DEBUG=1
+//   • flag file: %APPDATA%/TodoApp/debug.flag
+function isDebugMode() {
+  const argv = (process.argv || []).map(String);
+  if (argv.includes('--debug')) return true;
+  if (process.env.TODOAPP_DEBUG === '1' || process.env.TODOAPP_DEBUG === 'true') return true;
+  try {
+    if (fs.existsSync(path.join(app.getPath('userData'), 'debug.flag'))) return true;
+  } catch (_e) { /* userData not ready yet */ }
+  return false;
+}
+const DEBUG = isDebugMode();
+const LOG_MAX_BYTES = DEBUG ? 1024 * 1024 : 64 * 1024;       // 1MB debug / 64KB normal
+const LOG_TRIM_TO_BYTES = DEBUG ? 512 * 1024 : 32 * 1024;    // trim to half cap on overflow
+
+function getLogPath() {
+  try { return path.join(app.getPath('userData'), 'app.log'); } catch (_e) { return null; }
+}
+function rotateLogIfNeeded(fp) {
+  try {
+    const st = fs.statSync(fp);
+    if (st.size <= LOG_MAX_BYTES) return;
+    const fd = fs.openSync(fp, 'r');
+    const buf = Buffer.alloc(LOG_TRIM_TO_BYTES);
+    fs.readSync(fd, buf, 0, LOG_TRIM_TO_BYTES, st.size - LOG_TRIM_TO_BYTES);
+    fs.closeSync(fd);
+    // Align to next newline so we don't keep a half-truncated line at the head.
+    const nl = buf.indexOf(0x0a);
+    const trimmed = nl >= 0 ? buf.slice(nl + 1) : buf;
+    fs.writeFileSync(fp, `--- log rotated ${new Date().toISOString()} ---\n`, 'utf-8');
+    fs.appendFileSync(fp, trimmed);
+  } catch (_e) { /* leave the file as-is rather than crashing */ }
+}
+function writeLog(level, msg) {
+  try {
+    const fp = getLogPath();
+    if (!fp) return;
+    const dir = path.dirname(fp);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    if (fs.existsSync(fp)) rotateLogIfNeeded(fp);
+    fs.appendFileSync(fp, `[${new Date().toISOString()}] [${level}] ${msg}\n`, 'utf-8');
+  } catch (_e) { /* logging must never crash the app */ }
+}
+// info() is silent unless DEBUG is on, so normal users only accumulate
+// boot/warn/error lines (the few that matter for support).
+const log = {
+  info:  (m) => { if (DEBUG) writeLog('INFO', m); },
+  warn:  (m) => writeLog('WARN', m),
+  error: (m) => writeLog('ERROR', m),
+  boot:  (m) => writeLog('BOOT', m)
+};
+// Backward-compat alias for the previous helper name.
+const startupLog = log.boot;
+
+// Catch otherwise-silent crashes so they show up in app.log instead of vanishing.
+process.on('uncaughtException', (err) => {
+  log.error(`uncaughtException: ${err && err.stack ? err.stack : err}`);
+});
+process.on('unhandledRejection', (reason) => {
+  log.error(`unhandledRejection: ${reason && reason.stack ? reason.stack : reason}`);
+});
+
+// Mirror console.error/warn into the log file without per-callsite changes.
+// Stdout/stderr behavior is untouched — we just add a file sink on top.
+function __fmtArg(a) {
+  if (a instanceof Error) return a.stack || a.message;
+  if (typeof a === 'object') {
+    try { return JSON.stringify(a); } catch (_e) { return String(a); }
+  }
+  return String(a);
+}
+const __origConsoleError = console.error.bind(console);
+const __origConsoleWarn = console.warn.bind(console);
+console.error = (...args) => {
+  __origConsoleError(...args);
+  try { log.error(args.map(__fmtArg).join(' ')); } catch (_e) {}
+};
+console.warn = (...args) => {
+  __origConsoleWarn(...args);
+  try { log.warn(args.map(__fmtArg).join(' ')); } catch (_e) {}
+};
+
+// Hardware acceleration: default ON. A previous build force-disabled GPU for
+// every user, which broke compositing on a subset of Windows machines (frame
+// drawn, contents never painted). We now keep GPU on, but allow opt-out for
+// the small VM/RDP minority via any of:
+//   • CLI flag:  --disable-gpu  or  --no-hwaccel
+//   • env var:   TODOAPP_DISABLE_GPU=1
+//   • flag file: %APPDATA%/TodoApp/disable-gpu.flag
+function shouldDisableGpu() {
+  const argv = (process.argv || []).map(String);
+  if (argv.includes('--disable-gpu') || argv.includes('--no-hwaccel')) return true;
+  if (process.env && (process.env.TODOAPP_DISABLE_GPU === '1' ||
+                      process.env.TODOAPP_DISABLE_GPU === 'true')) return true;
+  try {
+    const flag = path.join(app.getPath('userData'), 'disable-gpu.flag');
+    if (fs.existsSync(flag)) return true;
+  } catch (_e) { /* userData not ready yet in rare cases */ }
+  return false;
+}
+if (shouldDisableGpu()) {
+  app.disableHardwareAcceleration();
+  log.boot('GPU acceleration disabled by user override');
+}
+log.boot(`App start — version ${app.getVersion()}, packaged=${app.isPackaged}, platform=${process.platform}, debug=${DEBUG}`);
 
 // Ensure only one instance runs; a second launch focuses the existing window.
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
@@ -147,7 +255,6 @@ function createSplashWindow() {
     skipTaskbar: true,
     center: true,
     show: true,
-    paintWhenInitiallyHidden: false,
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -155,6 +262,14 @@ function createSplashWindow() {
     }
   });
   splash.loadFile(path.join(__dirname, 'renderer', 'splash.html'));
+  splash.webContents.on('did-fail-load', (_e, code, desc, url) => {
+    log.error(`splash did-fail-load ${code} ${desc} ${url}`);
+  });
+  splash.webContents.on('render-process-gone', (_e, details) => {
+    log.error(`splash render-process-gone: ${details && details.reason}`);
+  });
+  // Normal-flow event — only log when debugging, otherwise it just adds noise.
+  splash.webContents.once('did-finish-load', () => log.info('splash did-finish-load'));
   return splash;
 }
 
@@ -257,13 +372,20 @@ function createWindow(splash, splashShownAt) {
 
   win.webContents.on('did-fail-load', (_e, errorCode, errorDesc, url) => {
     console.error(`Renderer failed to load (${errorCode} ${errorDesc}): ${url}`);
+    log.error(`main did-fail-load ${errorCode} ${errorDesc} ${url}`);
     revealWindow();
   });
 
   win.webContents.on('render-process-gone', (_e, details) => {
     console.error('Renderer process gone:', details && details.reason);
+    log.error(`main render-process-gone: ${details && details.reason}`);
     revealWindow();
   });
+
+  win.webContents.once('did-finish-load', () => log.info('main did-finish-load'));
+  // ready-to-show is the single most useful "did the UI come up?" boot event,
+  // so keep it at BOOT level (always written).
+  win.once('ready-to-show', () => log.boot('main ready-to-show'));
 }
 
 ipcMain.on('window:minimize', () => {
