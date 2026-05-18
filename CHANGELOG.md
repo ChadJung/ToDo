@@ -6,6 +6,23 @@
 
 ## [Unreleased]
 
+## [1.4.2] - 2026-05-18
+
+### Fixed
+- 일부 사용자 PC에서 프로세스는 실행되지만(작업관리자에는 보임) 창이 테두리만 나오고 콘텐츠가 그려지지 않던 문제
+  - 무조건 호출되던 `app.disableHardwareAcceleration()`이 일부 Windows 환경의 소프트웨어 컴포지팅을 깨뜨리는 원인이었음 → **기본 GPU 가속 ON**으로 복원
+  - 필요 시 opt-out: CLI `--disable-gpu` / `--no-hwaccel`, 환경변수 `TODOAPP_DISABLE_GPU=1`, 또는 `%APPDATA%/TodoApp/disable-gpu.flag` 파일 생성
+- 스플래시 창 옵션 `paintWhenInitiallyHidden: false` 제거 — `show: true`와 충돌해 첫 페인트가 지연되던 케이스 해소
+- 스플래시 창에도 `did-fail-load` / `render-process-gone` 핸들러 추가
+
+### Added
+- 영구 앱 로그 `%APPDATA%/TodoApp/app.log`
+  - 일반 모드: 최대 64KB, 32KB tail-trim rotation, `BOOT`/`WARN`/`ERROR`만 기록
+  - 디버그 모드: 최대 1MB, 512KB tail-trim rotation, `INFO`까지 모두 기록
+  - 디버그 모드 opt-in: CLI `--debug`, 환경변수 `TODOAPP_DEBUG=1`, 또는 `%APPDATA%/TodoApp/debug.flag` 파일
+- `console.error` / `console.warn`을 자동으로 `app.log`에 미러링 — 기존 IPC 핸들러 실패가 코드 수정 없이 모두 기록됨
+- `uncaughtException` / `unhandledRejection` 캡처
+
 ## [1.4.1] - 2026-05-15
 
 ### Fixed
@@ -94,7 +111,8 @@
 - Task 상태(대기/진행/완료), 우선순위, 시작/마감/종료 일정 관리
 - 네이티브 알림, 창 상태 유지, 확대/축소
 
-[Unreleased]: https://github.com/ChadJung/ToDo/compare/v1.4.1...HEAD
+[Unreleased]: https://github.com/ChadJung/ToDo/compare/v1.4.2...HEAD
+[1.4.2]: https://github.com/ChadJung/ToDo/compare/v1.4.1...v1.4.2
 [1.4.1]: https://github.com/ChadJung/ToDo/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/ChadJung/ToDo/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/ChadJung/ToDo/compare/v1.2.0...v1.3.0
