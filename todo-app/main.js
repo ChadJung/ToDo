@@ -357,7 +357,9 @@ function createWindow(splash, splashShownAt) {
 
   const win = new BrowserWindow(winOptions);
 
-  if (savedState.isMaximized) win.maximize();
+  // NOTE: don't call win.maximize() here. On Windows, maximizing a show:false
+  // window makes it visible immediately, so the main window would pop up before
+  // the splash closes. Maximize is deferred to revealWindow() instead.
 
   mainWindow = win;
   win.setMenuBarVisibility(false);
@@ -400,10 +402,27 @@ function createWindow(splash, splashShownAt) {
   const revealWindow = () => {
     if (shown) return;
     shown = true;
-    if (splash && !splash.isDestroyed()) splash.close();
-    if (win && !win.isDestroyed()) {
-      win.show();
-      win.focus();
+    let mainShown = false;
+    const showMain = () => {
+      if (mainShown) return;
+      mainShown = true;
+      if (win && !win.isDestroyed()) {
+        // Maximize here (not at creation) so a show:false window isn't forced
+        // visible early. show() right after keeps the maximized-state seamless.
+        if (savedState.isMaximized) win.maximize();
+        win.show();
+        win.focus();
+      }
+    };
+    if (splash && !splash.isDestroyed()) {
+      // Reveal the main window only after the splash has actually closed so the
+      // two never overlap on screen. Both use #1e1e1e bg, so the handoff is seamless.
+      splash.once('closed', showMain);
+      // Fallback so a delayed/missing 'closed' event can't strand the user.
+      setTimeout(showMain, 400);
+      splash.close();
+    } else {
+      showMain();
     }
   };
 

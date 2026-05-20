@@ -6,6 +6,14 @@
 
 ## [Unreleased]
 
+## [1.4.4] - 2026-05-20
+
+### Fixed
+- 스플래시 화면이 닫히기도 전에 메인 창이 떠버리던 문제
+  - 원인: 창 생성 직후 `win.maximize()`를 호출했는데, `show: false` 상태의 창을 Windows에서 maximize하면 즉시 보여버림 → 이전 세션이 최대화 상태였던 사용자에게 splash보다 메인 창이 먼저 노출
+  - maximize 호출을 창 표시 시점(`revealWindow`)으로 이동
+  - 메인 창은 splash의 `closed` 이벤트 이후에만 표시하도록 변경 → 두 창이 화면에서 겹치지 않음 (둘 다 `#1e1e1e` 배경이라 전환이 매끄러움)
+
 ## [1.4.3] - 2026-05-20
 
 ### Security
@@ -127,7 +135,8 @@
 - Task 상태(대기/진행/완료), 우선순위, 시작/마감/종료 일정 관리
 - 네이티브 알림, 창 상태 유지, 확대/축소
 
-[Unreleased]: https://github.com/ChadJung/ToDo/compare/v1.4.3...HEAD
+[Unreleased]: https://github.com/ChadJung/ToDo/compare/v1.4.4...HEAD
+[1.4.4]: https://github.com/ChadJung/ToDo/compare/v1.4.3...v1.4.4
 [1.4.3]: https://github.com/ChadJung/ToDo/compare/v1.4.2...v1.4.3
 [1.4.2]: https://github.com/ChadJung/ToDo/compare/v1.4.1...v1.4.2
 [1.4.1]: https://github.com/ChadJung/ToDo/compare/v1.4.0...v1.4.1
