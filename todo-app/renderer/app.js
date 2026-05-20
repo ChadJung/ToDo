@@ -1650,28 +1650,17 @@ function renderColumn(job, visibleTasks, totalCount) {
     e.dataTransfer.setData('text/plain', job.jobNo);
     e.dataTransfer.effectAllowed = 'move';
     col.classList.add('dragging');
+    draggingJobNo = job.jobNo;
   });
   col.addEventListener('dragend', () => {
     col.classList.remove('dragging');
     clearDraggable();
     hideDropIndicator();
+    draggingJobNo = null;
   });
-  col.addEventListener('dragover', (e) => {
-    if (col.classList.contains('dragging')) return;
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-    const rect = col.getBoundingClientRect();
-    const after = e.clientX > rect.left + rect.width / 2;
-    showDropIndicator(col, after);
-  });
-  col.addEventListener('drop', (e) => {
-    e.preventDefault();
-    hideDropIndicator();
-    const fromJobNo = e.dataTransfer.getData('text/plain');
-    const rect = col.getBoundingClientRect();
-    const after = e.clientX > rect.left + rect.width / 2;
-    fireAndForget(reorderJobs(fromJobNo, job.jobNo, after), 'JOB 순서 변경 실패');
-  });
+  // dragover/drop are handled at the board level (see setupBoardDelegation) so
+  // that drops landing in the gaps between columns or the board's padding —
+  // including the far-right edge — are still resolved to an insertion point.
 
   return col;
 }
@@ -1794,6 +1783,26 @@ function renderCard(jobNo, task) {
 // on every renderAll. Idempotent — guard with a flag so multiple init calls
 // don't accumulate listeners.
 let boardDelegationInstalled = false;
+// jobNo of the column currently being dragged (null when no drag in progress).
+// Used by the board-level drag handlers to ignore unrelated drags.
+let draggingJobNo = null;
+
+// Given a cursor X, find the insertion point among the non-dragging columns.
+// Returns { refCol, after }. When the cursor is past every column's midpoint
+// (e.g. over the board's right padding), this returns the last column with
+// after=true — which is what makes "drop to the far right" work even though
+// there is no column element under the cursor there.
+function getDragInsertionPoint(clientX) {
+  const cols = Array.from(els.board.querySelectorAll('.column:not(.dragging)'));
+  if (cols.length === 0) return { refCol: null, after: true };
+  for (const col of cols) {
+    const rect = col.getBoundingClientRect();
+    if (clientX < rect.left + rect.width / 2) {
+      return { refCol: col, after: false };
+    }
+  }
+  return { refCol: cols[cols.length - 1], after: true };
+}
 function setupBoardDelegation() {
   if (boardDelegationInstalled || !els.board) return;
   boardDelegationInstalled = true;
@@ -1856,6 +1865,28 @@ function setupBoardDelegation() {
     // Otherwise: card body click → open edit modal
     if (target.closest('[data-no-edit]')) return;
     openTaskModal(jobNo, taskId);
+  });
+
+  // ----- JOB column reorder: board-level drag handling -----
+  // Delegated to the board (not each column) so the cursor can be anywhere over
+  // the board — including gaps between columns and the right-edge padding past
+  // the last column — and still resolve to a valid insertion point.
+  els.board.addEventListener('dragover', (e) => {
+    if (!draggingJobNo) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    const { refCol, after } = getDragInsertionPoint(e.clientX);
+    if (refCol) showDropIndicator(refCol, after);
+  });
+  els.board.addEventListener('drop', (e) => {
+    if (!draggingJobNo) return;
+    e.preventDefault();
+    hideDropIndicator();
+    const fromJobNo = e.dataTransfer.getData('text/plain') || draggingJobNo;
+    const { refCol, after } = getDragInsertionPoint(e.clientX);
+    if (refCol && refCol.dataset.jobNo) {
+      fireAndForget(reorderJobs(fromJobNo, refCol.dataset.jobNo, after), 'JOB 순서 변경 실패');
+    }
   });
 }
 

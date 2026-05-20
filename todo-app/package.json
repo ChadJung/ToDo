@@ -1,6 +1,6 @@
 {
   "name": "todo-app",
-  "version": "1.4.4",
+  "version": "1.4.5",
   "description": "JOB-NO grouped Todo desktop application",
   "main": "main.js",
   "scripts": {

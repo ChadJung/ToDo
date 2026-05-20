@@ -6,6 +6,13 @@
 
 ## [Unreleased]
 
+## [1.4.5] - 2026-05-20
+
+### Fixed
+- JOB 컬럼을 가장 우측으로 드래그할 때 삽입선은 우측에 표시되지만 실제로 이동되지 않던 문제
+  - 원인: drag/drop 핸들러가 컬럼별로 붙어 있어, 커서가 마지막 컬럼을 지나 보드 우측 패딩/빈 영역에 놓이면 어느 컬럼의 `drop`도 발생하지 않음
+  - drag/drop을 보드 레벨 위임으로 변경하고, 커서 X로 삽입 지점을 계산(`getDragInsertionPoint`) → 컬럼 사이 갭·우측 끝 어디에 놓아도 정상 삽입
+
 ## [1.4.4] - 2026-05-20
 
 ### Fixed
@@ -135,7 +142,8 @@
 - Task 상태(대기/진행/완료), 우선순위, 시작/마감/종료 일정 관리
 - 네이티브 알림, 창 상태 유지, 확대/축소
 
-[Unreleased]: https://github.com/ChadJung/ToDo/compare/v1.4.4...HEAD
+[Unreleased]: https://github.com/ChadJung/ToDo/compare/v1.4.5...HEAD
+[1.4.5]: https://github.com/ChadJung/ToDo/compare/v1.4.4...v1.4.5
 [1.4.4]: https://github.com/ChadJung/ToDo/compare/v1.4.3...v1.4.4
 [1.4.3]: https://github.com/ChadJung/ToDo/compare/v1.4.2...v1.4.3
 [1.4.2]: https://github.com/ChadJung/ToDo/compare/v1.4.1...v1.4.2
