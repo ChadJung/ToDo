@@ -1962,7 +1962,9 @@ function openJobModal(jobNo) {
   if (editing && !job) return;
   els.modalJobTitle.textContent = editing ? 'JOB 수정' : 'JOB 추가';
   els.jobNoInput.value = editing ? job.jobNo : '';
-  els.jobNoInput.readOnly = editing;
+  // jobNo is editable; remember which job we're editing ('' = new) since we can
+  // no longer use readOnly as the editing flag.
+  els.jobNoInput.dataset.editing = editing ? job.jobNo : '';
   els.jobTitleInput.value = editing ? job.title : '';
   buildJobColorPicker(editing ? (job.color || '') : '');
   els.modalJob.classList.remove('hidden');
@@ -1976,12 +1978,22 @@ async function submitJobForm(e) {
   const title = els.jobTitleInput.value.trim();
   const color = sanitizeColor(els.jobColorInput.value);
   if (!jobNo || !title) return;
-  const editing = els.jobNoInput.readOnly;
+  const originalJobNo = els.jobNoInput.dataset.editing || '';
+  const editing = !!originalJobNo;
   if (editing) {
-    const job = findJob(jobNo);
+    const job = findJob(originalJobNo);
     if (!job) return;
+    // If the number was changed, make sure it doesn't collide with another JOB.
+    if (jobNo !== originalJobNo && findJob(jobNo)) {
+      showAlert('이미 존재하는 JOB 번호입니다.');
+      return;
+    }
+    job.jobNo = jobNo;
     job.title = title;
     job.color = color;
+    // Tasks live inside job.tasks, so they move with the rename automatically;
+    // only the lastActive pointer needs to follow the new number.
+    if (state.lastActiveJobNo === originalJobNo) state.lastActiveJobNo = jobNo;
   } else {
     if (findJob(jobNo)) {
       showAlert('이미 존재하는 JOB 번호입니다.');

@@ -204,9 +204,14 @@ function getSettingsFilePath() {
 }
 
 // ----- Window state persistence -----
+// Keep these in sync with the BrowserWindow minWidth/minHeight below. The
+// default width must be >= MIN_WIN_WIDTH or the first launch opens too narrow.
+const MIN_WIN_WIDTH = 1360;
+const MIN_WIN_HEIGHT = 720;
+
 const DEFAULT_WINDOW_STATE = {
-  width: 1200,
-  height: 800,
+  width: 1400,
+  height: 860,
   x: null,
   y: null,
   isMaximized: false
@@ -327,14 +332,16 @@ function createWindow(splash, splashShownAt) {
   const useSavedPosition = ensureBoundsVisible(savedState);
 
   const winOptions = {
-    width: savedState.width || 1200,
-    height: savedState.height || 800,
+    // Clamp to the minimums so a stale saved state (older builds saved a
+    // 1200px default, below the 1360 minimum) can't open the window too narrow.
+    width: Math.max(savedState.width || DEFAULT_WINDOW_STATE.width, MIN_WIN_WIDTH),
+    height: Math.max(savedState.height || DEFAULT_WINDOW_STATE.height, MIN_WIN_HEIGHT),
     // 4 JOB columns (4 × 320) + 3 gaps (3 × 14) + .board padding (2 × 16) = 1354px
     // — minimum window width keeps the top toolbar from wrapping on the board view.
-    minWidth: 1360,
+    minWidth: MIN_WIN_WIDTH,
     // Month calendar at max zoom (1.3): topbar (~70) + cal nav (~50) + weekday header (~30)
     // + 6 week rows of ≥85px each (24*1.3 chrome + 1 bar lane + "+더보기" lane) ≈ 660 + margin.
-    minHeight: 720,
+    minHeight: MIN_WIN_HEIGHT,
     backgroundColor: '#1e1e1e',
     title: 'TodoApp',
     icon: path.join(__dirname, 'build', 'icon.ico'),
