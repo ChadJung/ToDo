@@ -1557,8 +1557,9 @@ function renderBoard() {
   const board = els.board;
   // Install the single delegated click listener once (idempotent)
   setupBoardDelegation();
-  // FLIP First: capture each card's pre-rebuild rect so we can animate any
-  // card whose position moved (sort/reorder/status change).
+  // FLIP First: capture pre-rebuild rects for both columns and cards so we can
+  // animate JOB column reorder and card sort/move/status changes.
+  const prevColRects = captureColumnPositions(board);
   const prevCardRects = captureCardPositions(board);
   // Clear board but keep empty placeholder reference
   board.innerHTML = '';
@@ -1582,8 +1583,10 @@ function renderBoard() {
   }
 
   els.boardCount.textContent = `${state.data.jobs.length} JOBs · ${totalTasks} Tasks`;
-  // FLIP Last/Invert/Play: animate each card from its previous rect to new position
-  playCardFlipAnimation(board, prevCardRects);
+  // FLIP Last/Invert/Play: animate moved columns first, then cards — skipping
+  // cards inside a moved column (the column transform already carries them).
+  const movedColumns = playColumnFlipAnimation(board, prevColRects);
+  playCardFlipAnimation(board, prevCardRects, movedColumns);
 }
 
 function renderColumn(job, visibleTasks, totalCount) {
@@ -1705,11 +1708,48 @@ function captureCardPositions(board) {
   });
   return map;
 }
-function playCardFlipAnimation(board, prevRects) {
+// Same idea for whole JOB columns, keyed by jobNo, so column reorder animates too.
+function captureColumnPositions(board) {
+  const map = new Map();
+  if (!board) return map;
+  board.querySelectorAll('.column').forEach(col => {
+    if (col.dataset.jobNo) map.set(col.dataset.jobNo, col.getBoundingClientRect());
+  });
+  return map;
+}
+const FLIP_OPTS = { duration: 280, easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)' };
+// Animate columns from their previous to new position. Returns the set of
+// jobNos that actually moved, so the caller can skip per-card FLIP inside them
+// (the column's transform already carries its cards — animating both would
+// double the motion).
+function playColumnFlipAnimation(board, prevRects) {
+  const moved = new Set();
+  if (!board || !prevRects || !prevRects.size) return moved;
+  board.querySelectorAll('.column').forEach(col => {
+    const jobNo = col.dataset.jobNo;
+    if (!jobNo) return;
+    const prev = prevRects.get(jobNo);
+    if (!prev) return;
+    const curr = col.getBoundingClientRect();
+    const dx = prev.left - curr.left;
+    const dy = prev.top - curr.top;
+    if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return;
+    moved.add(jobNo);
+    col.animate(
+      [{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'translate(0, 0)' }],
+      FLIP_OPTS
+    );
+  });
+  return moved;
+}
+// movedColumns: jobNos whose column is being animated — their cards ride along
+// via the column transform, so we skip animating those cards individually.
+function playCardFlipAnimation(board, prevRects, movedColumns) {
   if (!board || !prevRects || !prevRects.size) return;
   board.querySelectorAll('.card').forEach(card => {
     const id = card.dataset.id;
     if (!id) return;
+    if (movedColumns && movedColumns.has(card.dataset.jobNo)) return;
     const prev = prevRects.get(id);
     if (!prev) return;
     const curr = card.getBoundingClientRect();
@@ -1718,11 +1758,8 @@ function playCardFlipAnimation(board, prevRects) {
     if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return;
     // Web Animations API runs alongside CSS — auto-cleans up so :hover transforms work afterwards.
     card.animate(
-      [
-        { transform: `translate(${dx}px, ${dy}px)` },
-        { transform: 'translate(0, 0)' }
-      ],
-      { duration: 280, easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)' }
+      [{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'translate(0, 0)' }],
+      FLIP_OPTS
     );
   });
 }

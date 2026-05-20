@@ -6,6 +6,13 @@
 
 ## [Unreleased]
 
+## [1.4.6] - 2026-05-20
+
+### Changed
+- JOB 컬럼 드래그로 순서를 바꿀 때 컬럼도 FLIP 애니메이션으로 부드럽게 이동 (기존엔 안의 카드만 애니메이션되고 컬럼 보드는 즉시 점프했음)
+  - 이동한 컬럼 + 밀려나는 컬럼 모두 280ms ease-out으로 슬라이드
+  - 이동한 컬럼 내부의 카드는 개별 애니메이션을 건너뜀 — 컬럼 transform이 카드를 함께 옮기므로 이중 애니메이션 방지
+
 ## [1.4.5] - 2026-05-20
 
 ### Fixed
@@ -142,7 +149,8 @@
 - Task 상태(대기/진행/완료), 우선순위, 시작/마감/종료 일정 관리
 - 네이티브 알림, 창 상태 유지, 확대/축소
 
-[Unreleased]: https://github.com/ChadJung/ToDo/compare/v1.4.5...HEAD
+[Unreleased]: https://github.com/ChadJung/ToDo/compare/v1.4.6...HEAD
+[1.4.6]: https://github.com/ChadJung/ToDo/compare/v1.4.5...v1.4.6
 [1.4.5]: https://github.com/ChadJung/ToDo/compare/v1.4.4...v1.4.5
 [1.4.4]: https://github.com/ChadJung/ToDo/compare/v1.4.3...v1.4.4
 [1.4.3]: https://github.com/ChadJung/ToDo/compare/v1.4.2...v1.4.3
