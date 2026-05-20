@@ -6,6 +6,22 @@
 
 ## [Unreleased]
 
+## [1.4.3] - 2026-05-20
+
+### Security
+- 개발자 개인 Todo 데이터(`data/todos.json`)가 빌드에 함께 포함되어 모든 사용자에게 배포되던 문제 수정
+  - `files` 배열에서 `data/**` 제거 (패키지된 앱은 userData에서만 데이터를 읽으므로 asar 내 data는 불필요했음)
+  - seed를 빈 파일(`build/seed-todos.json` = `{ "jobs": [] }`)로 분리하고 extraResources가 이를 복사하도록 변경
+
+### Added
+- `%TEMP%/TodoApp-startup.log` 크래시 안전 폴백 로그 — userData 접근 이전, app 준비 이전에 실행되어 "앱이 안 켜지고 로그도 없다" 상황에서 확인할 수 있는 최후의 진단 파일 (64KB cap, tail-trim rotation)
+- 프로세스 시작 즉시 pid / electron 버전 / exe 경로 / argv 기록
+- 단일 인스턴스 락 실패 기록 (좀비 프로세스로 인한 조용한 종료 구분)
+- 실제 `userData` 경로를 boot 로그에 기록 (경로 혼동 방지)
+
+### Known Issues
+- 일부 PC에서 "ffmpeg.dll 없음" 오류로 실행 실패: AhnLab Safe Transaction 등 보안 소프트웨어가 미서명 Electron의 `ffmpeg.dll`을 오탐·격리하는 것이 원인. `ffmpeg.dll`은 Electron 런타임 부팅에 필수라 제거할 수 없으므로(제거 시 모든 PC에서 동일 오류 발생), 근본 해결책은 **코드 서명(Authenticode)**. 임시방편으로는 AhnLab 격리함에서 복원 + 예외 등록, 또는 AhnLab 오탐 신고.
+
 ## [1.4.2] - 2026-05-18
 
 ### Fixed
@@ -111,7 +127,8 @@
 - Task 상태(대기/진행/완료), 우선순위, 시작/마감/종료 일정 관리
 - 네이티브 알림, 창 상태 유지, 확대/축소
 
-[Unreleased]: https://github.com/ChadJung/ToDo/compare/v1.4.2...HEAD
+[Unreleased]: https://github.com/ChadJung/ToDo/compare/v1.4.3...HEAD
+[1.4.3]: https://github.com/ChadJung/ToDo/compare/v1.4.2...v1.4.3
 [1.4.2]: https://github.com/ChadJung/ToDo/compare/v1.4.1...v1.4.2
 [1.4.1]: https://github.com/ChadJung/ToDo/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/ChadJung/ToDo/compare/v1.3.0...v1.4.0

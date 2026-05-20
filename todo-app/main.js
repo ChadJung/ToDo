@@ -1,6 +1,40 @@
 const { app, BrowserWindow, ipcMain, Notification, screen } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
+
+// ----- Crash-safety fallback log (must run first) -----
+// %TEMP%/TodoApp-startup.log is always writable, always findable, and runs
+// before we depend on Electron paths or app.whenReady(). When a user reports
+// "the app doesn't open and there's no log anywhere", this is the file to
+// ask for. Capped at 64KB with tail-trim rotation so it never grows.
+const FALLBACK_LOG = path.join(os.tmpdir(), 'TodoApp-startup.log');
+const FALLBACK_MAX_BYTES = 64 * 1024;
+const FALLBACK_TRIM_BYTES = 32 * 1024;
+function rotateFallbackIfNeeded() {
+  try {
+    const st = fs.statSync(FALLBACK_LOG);
+    if (st.size <= FALLBACK_MAX_BYTES) return;
+    const fd = fs.openSync(FALLBACK_LOG, 'r');
+    const buf = Buffer.alloc(FALLBACK_TRIM_BYTES);
+    fs.readSync(fd, buf, 0, FALLBACK_TRIM_BYTES, st.size - FALLBACK_TRIM_BYTES);
+    fs.closeSync(fd);
+    const nl = buf.indexOf(0x0a);
+    const trimmed = nl >= 0 ? buf.slice(nl + 1) : buf;
+    fs.writeFileSync(FALLBACK_LOG, `--- log rotated ${new Date().toISOString()} ---\n`, 'utf-8');
+    fs.appendFileSync(FALLBACK_LOG, trimmed);
+  } catch (_e) {}
+}
+function fallbackLog(msg) {
+  try {
+    if (fs.existsSync(FALLBACK_LOG)) rotateFallbackIfNeeded();
+    fs.appendFileSync(FALLBACK_LOG, `[${new Date().toISOString()}] ${msg}\n`, 'utf-8');
+  } catch (_e) {}
+}
+fallbackLog('---- process start ----');
+fallbackLog(`pid=${process.pid} platform=${process.platform} arch=${process.arch} node=${process.versions.node} electron=${process.versions.electron}`);
+fallbackLog(`exe=${process.execPath}`);
+fallbackLog(`argv=${JSON.stringify(process.argv)}`);
 
 const isDev = !app.isPackaged;
 
@@ -57,11 +91,14 @@ function writeLog(level, msg) {
 }
 // info() is silent unless DEBUG is on, so normal users only accumulate
 // boot/warn/error lines (the few that matter for support).
+// boot/warn/error are also mirrored to the %TEMP% fallback log so users
+// always have one canonical place to find diagnostic info, even if the
+// userData directory is inaccessible (permission denied, AV blocked, etc).
 const log = {
   info:  (m) => { if (DEBUG) writeLog('INFO', m); },
-  warn:  (m) => writeLog('WARN', m),
-  error: (m) => writeLog('ERROR', m),
-  boot:  (m) => writeLog('BOOT', m)
+  warn:  (m) => { writeLog('WARN', m); fallbackLog(`[WARN] ${m}`); },
+  error: (m) => { writeLog('ERROR', m); fallbackLog(`[ERROR] ${m}`); },
+  boot:  (m) => { writeLog('BOOT', m); fallbackLog(`[BOOT] ${m}`); }
 };
 // Backward-compat alias for the previous helper name.
 const startupLog = log.boot;
@@ -117,10 +154,20 @@ if (shouldDisableGpu()) {
   log.boot('GPU acceleration disabled by user override');
 }
 log.boot(`App start — version ${app.getVersion()}, packaged=${app.isPackaged}, platform=${process.platform}, debug=${DEBUG}`);
+try {
+  // Surface the real userData path so users don't waste time looking in the
+  // wrong %APPDATA% subdirectory. (electron-builder's productName affects the
+  // .exe name but not app.getName(), so userData is %APPDATA%/<package.json name>.)
+  log.boot(`userData=${app.getPath('userData')}`);
+} catch (_e) { /* path resolution can fail in extreme cases; the fallback log already captured process start */ }
 
 // Ensure only one instance runs; a second launch focuses the existing window.
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 if (!gotSingleInstanceLock) {
+  // Without this log, "I double-clicked the exe but nothing happened" reports
+  // (caused by a previous instance still holding the lock or a zombie process)
+  // are indistinguishable from real crashes.
+  fallbackLog('single-instance lock NOT acquired — another instance is running; quitting');
   app.quit();
 } else {
   app.on('second-instance', () => {
