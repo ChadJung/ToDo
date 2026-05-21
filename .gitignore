@@ -4,8 +4,11 @@ node_modules/
 # Build outputs
 dist/
 todo-app/dist/
-build/
-todo-app/build/
+# todo-app/build/ holds electron-builder *source* assets (app icon), not output.
+# Ignore anything generated there but keep the icon tracked so CI builds use it
+# instead of falling back to the default Electron icon.
+todo-app/build/*
+!todo-app/build/icon.ico
 
 # Local user data (todo storage)
 todo-app/data/

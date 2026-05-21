@@ -6,6 +6,12 @@
 
 ## [Unreleased]
 
+## [1.4.7] - 2026-05-21
+
+### Fixed
+- 릴리스(GitHub Actions) 빌드가 기본 Electron 아이콘으로 나오던 문제 — `build/`가 통째로 `.gitignore`되어 앱 아이콘(`build/icon.ico`)이 저장소에 올라가지 않아 CI 빌드에 아이콘이 없었음. `build/`는 electron-builder의 출력이 아니라 입력(소스 자산) 디렉토리이므로, 생성물은 무시하되 `icon.ico`는 추적되도록 `.gitignore` 수정 + 아이콘 파일 커밋
+  - 로컬 빌드는 로컬 `build/icon.ico`를 써서 정상이었으나, 배포본(CI)만 기본 아이콘으로 나오던 차이
+
 ## [1.4.6] - 2026-05-20
 
 ### Added
@@ -155,7 +161,8 @@
 - Task 상태(대기/진행/완료), 우선순위, 시작/마감/종료 일정 관리
 - 네이티브 알림, 창 상태 유지, 확대/축소
 
-[Unreleased]: https://github.com/ChadJung/ToDo/compare/v1.4.6...HEAD
+[Unreleased]: https://github.com/ChadJung/ToDo/compare/v1.4.7...HEAD
+[1.4.7]: https://github.com/ChadJung/ToDo/compare/v1.4.6...v1.4.7
 [1.4.6]: https://github.com/ChadJung/ToDo/compare/v1.4.5...v1.4.6
 [1.4.5]: https://github.com/ChadJung/ToDo/compare/v1.4.4...v1.4.5
 [1.4.4]: https://github.com/ChadJung/ToDo/compare/v1.4.3...v1.4.4
