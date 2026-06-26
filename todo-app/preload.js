@@ -27,3 +27,12 @@ contextBridge.exposeInMainWorld('windowAPI', {
     ipcRenderer.on('window:maximized', (_e, isMax) => cb(isMax));
   }
 });
+
+contextBridge.exposeInMainWorld('trayAPI', {
+  // Main asks the renderer to show the first-close prompt.
+  onPromptOnClose: (cb) => {
+    ipcRenderer.on('tray:promptOnClose', () => cb());
+  },
+  // Renderer reports the user's choice: true = minimize to tray, false = quit.
+  firstCloseDecision: (minimize) => ipcRenderer.send('tray:firstCloseDecision', minimize)
+});

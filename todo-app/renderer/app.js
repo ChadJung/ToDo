@@ -18,7 +18,8 @@ const DEFAULT_SETTINGS = {
   completeBehavior: 'ask',          // 'ask' | 'auto' | 'manual'
   notificationEnabled: true,
   notificationMinutesBefore: 5,
-  autoStart: null                   // null = never asked, true/false once user has decided
+  autoStart: null,                  // null = never asked, true/false once user has decided
+  minimizeToTray: null              // null = never asked, true = hide to tray, false = quit
 };
 
 let settings = Object.assign({}, DEFAULT_SETTINGS);
@@ -92,17 +93,63 @@ const TimePicker = (function () {
 
   function pad(n) { return n < 10 ? '0' + n : '' + n; }
 
+  // Wheel geometry (ITEM_H must match CSS .tp-item height)
+  const ITEM_H = 32;
+  const VISIBLE = 5;                       // visible rows (odd)
+  const PAD = ITEM_H * ((VISIBLE - 1) / 2);
+  const COPIES = 9;                        // repeated blocks for infinite wrap (odd)
+  const MID = (COPIES - 1) / 2;
+  const MIN_STEP = 5;
+
+  const HOURS = [];
+  for (let h = 0; h < 24; h++) HOURS.push(pad(h));
+  const MINS = [];
+  for (let m = 0; m < 60; m += MIN_STEP) MINS.push(pad(m));
+
+  function baseFor(col) {
+    return col.dataset.tpCol === 'hour' ? HOURS : MINS;
+  }
+
+  // Fill a column with a top spacer, COPIES repetitions of base, and a bottom spacer.
+  function fillCol(col, base) {
+    const top = document.createElement('div');
+    top.className = 'tp-spacer';
+    top.style.height = PAD + 'px';
+    col.appendChild(top);
+    for (let c = 0; c < COPIES; c++) {
+      for (let i = 0; i < base.length; i++) {
+        const item = document.createElement('div');
+        item.className = 'tp-item';
+        item.dataset.tpVal = base[i];
+        item.textContent = base[i];
+        col.appendChild(item);
+      }
+    }
+    const bot = document.createElement('div');
+    bot.className = 'tp-spacer';
+    bot.style.height = PAD + 'px';
+    col.appendChild(bot);
+  }
+
   function buildPopup() {
     if (popup) return popup;
     popup = document.createElement('div');
     popup.className = 'tp-popup hidden';
     popup.innerHTML = [
-      '<div class="tp-col" data-tp-col="hour">',
+      '<div class="tp-colwrap">',
       '  <div class="tp-col-label">시</div>',
+      '  <div class="tp-col-view">',
+      '    <div class="tp-col" data-tp-col="hour"></div>',
+      '    <div class="tp-center-band"></div>',
+      '  </div>',
       '</div>',
       '<div class="tp-sep"></div>',
-      '<div class="tp-col" data-tp-col="min">',
+      '<div class="tp-colwrap">',
       '  <div class="tp-col-label">분</div>',
+      '  <div class="tp-col-view">',
+      '    <div class="tp-col" data-tp-col="min"></div>',
+      '    <div class="tp-center-band"></div>',
+      '  </div>',
       '</div>',
       '<div class="tp-actions">',
       '  <button type="button" class="tp-btn" data-tp-act="now">현재</button>',
@@ -111,41 +158,77 @@ const TimePicker = (function () {
     ].join('');
     const hourCol = popup.querySelector('[data-tp-col="hour"]');
     const minCol = popup.querySelector('[data-tp-col="min"]');
-    for (let h = 0; h < 24; h++) {
-      const item = document.createElement('div');
-      item.className = 'tp-item';
-      item.dataset.tpVal = pad(h);
-      item.textContent = pad(h);
-      hourCol.appendChild(item);
-    }
-    for (let m = 0; m < 60; m++) {
-      const item = document.createElement('div');
-      item.className = 'tp-item';
-      item.dataset.tpVal = pad(m);
-      item.textContent = pad(m);
-      minCol.appendChild(item);
-    }
+    fillCol(hourCol, HOURS);
+    fillCol(minCol, MINS);
+    bindWheel(hourCol, 'hour');
+    bindWheel(minCol, 'min');
     popup.addEventListener('click', onPopupClick);
     document.body.appendChild(popup);
     return popup;
   }
 
-  function highlightSelected() {
-    if (!popup) return;
-    popup.querySelectorAll('[data-tp-col="hour"] .tp-item').forEach((el) => {
-      el.classList.toggle('selected', el.dataset.tpVal === pendingHour);
-    });
-    popup.querySelectorAll('[data-tp-col="min"] .tp-item').forEach((el) => {
-      el.classList.toggle('selected', el.dataset.tpVal === pendingMin);
-    });
+  // Global item index whose center aligns with the column center.
+  function centerIndex(col) {
+    return Math.round(col.scrollTop / ITEM_H);
   }
 
-  function scrollToSelected() {
-    if (!popup) return;
-    const sels = popup.querySelectorAll('.tp-item.selected');
-    sels.forEach((el) => {
-      const col = el.parentElement;
-      col.scrollTop = el.offsetTop - col.clientHeight / 2 + el.clientHeight / 2;
+  function valueAtCenter(col) {
+    const base = baseFor(col);
+    const g = centerIndex(col);
+    const i = ((g % base.length) + base.length) % base.length;
+    return base[i];
+  }
+
+  // After a scroll settles, jump (without animation) back into the middle copy
+  // so the wheel can keep wrapping forever in either direction.
+  function recenter(col) {
+    const base = baseFor(col);
+    const g = centerIndex(col);
+    const i = ((g % base.length) + base.length) % base.length;
+    const target = MID * base.length + i;
+    if (target !== g) {
+      col._suppress = true;
+      col.scrollTop = target * ITEM_H;
+    }
+  }
+
+  function setCenterToValue(col, val, smooth) {
+    const base = baseFor(col);
+    let i = base.indexOf(val);
+    if (i < 0) i = 0;
+    const target = MID * base.length + i;
+    col._suppress = true;
+    if (smooth) col.scrollTo({ top: target * ITEM_H, behavior: 'smooth' });
+    else col.scrollTop = target * ITEM_H;
+  }
+
+  function highlightCenter(col) {
+    const items = col.querySelectorAll('.tp-item');
+    const g = centerIndex(col);
+    items.forEach((el, idx) => el.classList.toggle('tp-center', idx === g));
+  }
+
+  function syncPending(col) {
+    const v = valueAtCenter(col);
+    if (col.dataset.tpCol === 'hour') pendingHour = v; else pendingMin = v;
+  }
+
+  function bindWheel(col, which) {
+    let raf = null;
+    let settleTimer = null;
+    col.addEventListener('scroll', () => {
+      if (col._suppress) { col._suppress = false; return; }
+      if (raf) cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        highlightCenter(col);
+        syncPending(col);
+      });
+      clearTimeout(settleTimer);
+      settleTimer = setTimeout(() => {
+        recenter(col);
+        highlightCenter(col);
+        syncPending(col);
+      }, 130);
     });
   }
 
@@ -159,23 +242,30 @@ const TimePicker = (function () {
     activeInput.dispatchEvent(new Event('change', { bubbles: true }));
   }
 
+  function snapMinute(m) {
+    return pad((Math.round(m / MIN_STEP) % (60 / MIN_STEP)) * MIN_STEP);
+  }
+
   function onPopupClick(e) {
     const item = e.target.closest('.tp-item');
     if (item) {
       const col = item.closest('[data-tp-col]');
-      const which = col && col.dataset.tpCol;
-      if (which === 'hour') pendingHour = item.dataset.tpVal;
-      else if (which === 'min') pendingMin = item.dataset.tpVal;
-      highlightSelected();
+      if (col) {
+        if (col.dataset.tpCol === 'hour') pendingHour = item.dataset.tpVal;
+        else pendingMin = item.dataset.tpVal;
+        setCenterToValue(col, item.dataset.tpVal, true);
+      }
       return;
     }
     const act = e.target.dataset && e.target.dataset.tpAct;
     if (act === 'now') {
       const d = new Date();
+      const hourCol = popup.querySelector('[data-tp-col="hour"]');
+      const minCol = popup.querySelector('[data-tp-col="min"]');
       pendingHour = pad(d.getHours());
-      pendingMin = pad(d.getMinutes());
-      highlightSelected();
-      scrollToSelected();
+      pendingMin = snapMinute(d.getMinutes());
+      setCenterToValue(hourCol, pendingHour, true);
+      setCenterToValue(minCol, pendingMin, true);
       return;
     }
     if (act === 'ok') {
@@ -206,11 +296,15 @@ const TimePicker = (function () {
     buildPopup();
     activeInput = input;
     const v = (input.value || '').match(/^(\d{1,2}):(\d{2})/);
-    pendingHour = v ? pad(parseInt(v[1], 10)) : '';
-    pendingMin = v ? v[2] : '';
-    highlightSelected();
-    position();
-    scrollToSelected();
+    pendingHour = pad(v ? parseInt(v[1], 10) : 0);
+    pendingMin = snapMinute(v ? parseInt(v[2], 10) : 0);
+    position(); // unhide first so columns have layout height for scrollTop
+    const hourCol = popup.querySelector('[data-tp-col="hour"]');
+    const minCol = popup.querySelector('[data-tp-col="min"]');
+    setCenterToValue(hourCol, pendingHour, false);
+    setCenterToValue(minCol, pendingMin, false);
+    highlightCenter(hourCol);
+    highlightCenter(minCol);
   }
 
   function close() {
@@ -326,10 +420,15 @@ const els = {
   settingsNotifyEnabled: $('#settings-notify-enabled'),
   settingsNotifyMinutes: $('#settings-notify-minutes'),
   settingsAutoStart: $('#settings-autostart'),
+  settingsMinimizeTray: $('#settings-minimize-tray'),
   // First-run auto-start prompt
   modalAutoStartConfirm: $('#modal-autostart-confirm'),
   autoStartConfirmYes: $('#autostart-confirm-yes'),
   autoStartConfirmNo: $('#autostart-confirm-no'),
+  // First-close minimize-to-tray prompt
+  modalTrayConfirm: $('#modal-tray-confirm'),
+  trayConfirmMinimize: $('#tray-confirm-minimize'),
+  trayConfirmQuit: $('#tray-confirm-quit'),
   // Complete confirm modal
   modalCompleteConfirm: $('#modal-complete-confirm'),
   completeConfirmRemember: $('#complete-confirm-remember'),
@@ -391,6 +490,10 @@ async function loadSettings() {
   settings.autoStart = (settings.autoStart === true || settings.autoStart === false)
     ? settings.autoStart
     : null;
+  // minimizeToTray is tri-state: null (never asked) | true | false.
+  settings.minimizeToTray = (settings.minimizeToTray === true || settings.minimizeToTray === false)
+    ? settings.minimizeToTray
+    : null;
 }
 
 // ----- Windows auto-start (login item) -----
@@ -430,6 +533,41 @@ function showAutoStartPrompt() {
     const onNo = () => { cleanup(); resolve(false); };
     yes.addEventListener('click', onYes);
     no.addEventListener('click', onNo);
+    modal.classList.remove('hidden');
+  });
+}
+
+// ----- First-close minimize-to-tray prompt -----
+// Main sends 'tray:promptOnClose' the first time the window is closed while
+// settings.minimizeToTray is null. We ask, persist the choice (which updates the
+// main-process flag + tray via settings:save), then tell main to hide or quit.
+function initTrayClosePrompt() {
+  if (!window.trayAPI || typeof window.trayAPI.onPromptOnClose !== 'function') return;
+  window.trayAPI.onPromptOnClose(async () => {
+    const minimize = await showTrayPrompt();
+    settings.minimizeToTray = minimize;
+    await persistSettings();
+    if (typeof window.trayAPI.firstCloseDecision === 'function') {
+      window.trayAPI.firstCloseDecision(minimize);
+    }
+  });
+}
+
+function showTrayPrompt() {
+  return new Promise(resolve => {
+    const modal = els.modalTrayConfirm;
+    const min = els.trayConfirmMinimize;
+    const quit = els.trayConfirmQuit;
+    if (!modal || !min || !quit) { resolve(false); return; }
+    const cleanup = () => {
+      modal.classList.add('hidden');
+      min.removeEventListener('click', onMin);
+      quit.removeEventListener('click', onQuit);
+    };
+    const onMin = () => { cleanup(); resolve(true); };
+    const onQuit = () => { cleanup(); resolve(false); };
+    min.addEventListener('click', onMin);
+    quit.addEventListener('click', onQuit);
     modal.classList.remove('hidden');
   });
 }
@@ -510,6 +648,11 @@ function combineDateTime(date, time) {
   const t = time && /^\d{2}:\d{2}$/.test(time) ? time : '00:00';
   const dt = new Date(date + 'T' + t + ':00');
   return Number.isNaN(dt.getTime()) ? null : dt;
+}
+// True when any task filter (status subset or priority) is currently active.
+// Used to hide JOB sections that have no tasks matching the active filter.
+function isFilterActive() {
+  return state.filterStatuses.size < STATUSES.length || !!state.filterPriority;
 }
 function applyFiltersSort(tasks) {
   let result = tasks.slice();
@@ -1506,6 +1649,9 @@ function renderList() {
     const tasks = applyFiltersSort(allTasks);
     visibleTotal += tasks.length;
 
+    // When a filter is active, hide JOB groups with no matching tasks.
+    if (isFilterActive() && tasks.length === 0) continue;
+
     // Group header row
     const groupRow = document.createElement('tr');
     groupRow.className = 'group-row';
@@ -1578,6 +1724,8 @@ function renderBoard() {
     const allTasks = Array.isArray(job.tasks) ? job.tasks : [];
     totalTasks += allTasks.length;
     const tasks = applyFiltersSort(allTasks);
+    // When a filter is active, hide JOB columns with no matching tasks.
+    if (isFilterActive() && tasks.length === 0) continue;
     const col = renderColumn(job, tasks, allTasks.length);
     board.appendChild(col);
   }
@@ -2257,6 +2405,7 @@ function openSettingsModal() {
   els.settingsNotifyEnabled.checked = !!settings.notificationEnabled;
   els.settingsNotifyMinutes.value = String(settings.notificationMinutesBefore);
   if (els.settingsAutoStart) els.settingsAutoStart.checked = settings.autoStart === true;
+  if (els.settingsMinimizeTray) els.settingsMinimizeTray.checked = settings.minimizeToTray === true;
   els.modalSettings.classList.remove('hidden');
 }
 function closeSettingsModal() { els.modalSettings.classList.add('hidden'); }
@@ -2274,6 +2423,7 @@ async function submitSettingsForm(e) {
   settings.completeBehavior = ['ask', 'auto', 'manual'].includes(behavior) ? behavior : 'ask';
   settings.notificationEnabled = notifyEnabled;
   settings.notificationMinutesBefore = minutes;
+  settings.minimizeToTray = els.settingsMinimizeTray ? els.settingsMinimizeTray.checked : !!settings.minimizeToTray;
 
   // Push the auto-start change to the OS only if it actually changed
   if (autoStart !== (settings.autoStart === true)) {
@@ -3486,6 +3636,9 @@ async function init() {
   // First-run auto-start prompt (or OS sync on later runs). Awaited so the
   // onboarding tour timer below doesn't fire while this modal is still open.
   await initAutoStart();
+
+  // Register the first-close minimize-to-tray prompt handler.
+  initTrayClosePrompt();
 
   // First-run onboarding tour. The catch only guards the localStorage read —
   // don't let it swallow downstream errors from Tour.start().

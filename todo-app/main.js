@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, Notification, screen } = require('electron');
+const { app, BrowserWindow, ipcMain, Notification, screen, Tray, Menu } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -185,7 +185,10 @@ const DEFAULT_SETTINGS = {
   notificationEnabled: true,
   notificationMinutesBefore: 5,
   // null = never asked (triggers first-run prompt). true/false once the user has decided.
-  autoStart: null
+  autoStart: null,
+  // Tri-state: null = never asked (prompt on first close), true = hide to tray
+  // on close, false = quit on close. Default null so the user is asked once.
+  minimizeToTray: null
 };
 
 // Resolve data file path
@@ -327,6 +330,80 @@ function createSplashWindow() {
 
 let mainWindow = null;
 
+// ----- System tray (minimize-to-tray) -----
+// `minimizeToTray` is the in-memory mirror of the settings flag (tri-state:
+// null = never asked, true = hide on close, false = quit on close). The window
+// 'close' handler reads it to decide between hiding, quitting, or prompting, and
+// it's refreshed whenever settings are saved (see settings:save below).
+// `isQuitting` lets the tray "Quit" item bypass the hide-on-close interception.
+let tray = null;
+let minimizeToTray = null;
+let trayPromptShown = false;   // guards against re-sending the first-close prompt
+app.isQuitting = false;
+
+// Read the persisted minimizeToTray flag at startup without going through the
+// renderer (which isn't loaded yet when we first need this value). Returns the
+// raw tri-state (null when never set).
+function loadMinimizeToTraySetting() {
+  try {
+    const raw = fs.readFileSync(getSettingsFilePath(), 'utf-8');
+    const parsed = JSON.parse(raw);
+    if (parsed && (parsed.minimizeToTray === true || parsed.minimizeToTray === false)) {
+      return parsed.minimizeToTray;
+    }
+    return null;
+  } catch (_e) {
+    return null;
+  }
+}
+
+function showMainWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+}
+
+function createTray() {
+  if (tray) return;
+  try {
+    tray = new Tray(path.join(__dirname, 'build', 'icon.ico'));
+    tray.setToolTip('TodoApp');
+    const menu = Menu.buildFromTemplate([
+      { label: '열기', click: () => showMainWindow() },
+      { type: 'separator' },
+      {
+        label: '종료',
+        click: () => {
+          app.isQuitting = true;
+          app.quit();
+        }
+      }
+    ]);
+    tray.setContextMenu(menu);
+    // Double-click (and single-click on Windows) restores the window.
+    tray.on('double-click', () => showMainWindow());
+    tray.on('click', () => showMainWindow());
+    log.boot('tray created');
+  } catch (err) {
+    console.error('Failed to create tray:', err);
+    tray = null;
+  }
+}
+
+function destroyTray() {
+  if (tray) {
+    try { tray.destroy(); } catch (_e) {}
+    tray = null;
+  }
+}
+
+// Create or tear down the tray icon so it only exists while the feature is on.
+function syncTray() {
+  if (minimizeToTray === true) createTray();
+  else destroyTray();
+}
+
 function createWindow(splash, splashShownAt) {
   const savedState = loadWindowState();
   const useSavedPosition = ensureBoundsVisible(savedState);
@@ -397,9 +474,30 @@ function createWindow(splash, splashShownAt) {
   win.on('move', queuePersist);
   win.on('maximize', queuePersist);
   win.on('unmaximize', queuePersist);
-  win.on('close', () => {
+  win.on('close', (e) => {
     if (stateSaveTimer) clearTimeout(stateSaveTimer);
     persistState();
+    // A real quit (tray menu, OS shutdown, app.quit) always proceeds.
+    if (app.isQuitting) return;
+    // First close ever (never asked): hold the window open and ask the user
+    // whether to quit or minimize to tray. The renderer saves the choice and
+    // sends back tray:firstCloseDecision, which performs the hide-or-quit.
+    if (minimizeToTray === null) {
+      e.preventDefault();
+      if (!trayPromptShown && win.webContents) {
+        trayPromptShown = true;
+        win.webContents.send('tray:promptOnClose');
+      }
+      return;
+    }
+    // User opted in: hide to tray instead of quitting. Require an actual tray
+    // icon — if tray creation failed, hiding would strand the window, so let the
+    // close proceed instead.
+    if (minimizeToTray === true && tray) {
+      e.preventDefault();
+      win.hide();
+    }
+    // minimizeToTray === false → fall through and quit normally.
   });
 
   const MIN_SPLASH_DURATION = 1200;
@@ -475,6 +573,18 @@ ipcMain.on('window:close', () => {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.close();
 });
 
+// Resolve the first-close prompt. The renderer has already persisted the user's
+// choice via settings:save (so minimizeToTray + tray are up to date); here we
+// just carry out the requested action.
+ipcMain.on('tray:firstCloseDecision', (_event, minimize) => {
+  if (minimize) {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.hide();
+  } else {
+    app.isQuitting = true;
+    app.quit();
+  }
+});
+
 // IPC: load full data
 ipcMain.handle('todo:load', async () => {
   try {
@@ -530,6 +640,12 @@ ipcMain.handle('settings:save', async (_event, settings) => {
     }
     const merged = Object.assign({}, DEFAULT_SETTINGS, settings);
     fs.writeFileSync(getSettingsFilePath(), JSON.stringify(merged, null, 2), 'utf-8');
+    // Keep the in-memory flag and tray icon in sync with the saved value
+    // (preserve the tri-state: null / true / false).
+    minimizeToTray = (merged.minimizeToTray === true || merged.minimizeToTray === false)
+      ? merged.minimizeToTray
+      : null;
+    syncTray();
     return { ok: true };
   } catch (err) {
     console.error('Failed to save settings:', err);
@@ -593,6 +709,10 @@ function startApp() {
   } catch (err) {
     console.error('Failed to ensure data file:', err);
   }
+  // Load the tray preference and create the tray up-front so the icon is present
+  // even before the first window is shown.
+  minimizeToTray = loadMinimizeToTraySetting();
+  syncTray();
   const splash = createSplashWindow();
   const splashShownAt = Date.now();
 
@@ -619,6 +739,10 @@ app.whenReady().then(() => {
     }
   });
 });
+
+// Any real quit path (tray Quit, OS shutdown, app.quit()) must be able to close
+// the window — flip the flag so the hide-on-close interception is bypassed.
+app.on('before-quit', () => { app.isQuitting = true; });
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
